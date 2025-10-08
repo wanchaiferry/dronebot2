@@ -1,0 +1,23 @@
+# Global config (optional)
+@config risky=0.65 safe=0.35 equity=150000
+
+# Per-ticker sliders:
+#   class = risky | safe
+#   buy   = % below ref to BUY
+#   sell  = % above ref to TRIM
+#   clip  = USD per buy (omit to use dynamic sizing)
+
+RCAT class=risky buy=1.8 sell=1.0
+DPRO class=risky buy=1.8 sell=1.0
+UMAC class=risky buy=1.8 sell=1.0
+AVAV class=safe  buy=1.2 sell=0.8
+KTOS class=safe  buy=1.2 sell=0.8
+LPTH class=risky buy=1.8 sell=1.0
+ONDS class=risky buy=1.8 sell=1.0
+EH   class=risky buy=1.8 sell=1.0
+SPAI class=risky buy=1.8 sell=1.0
+
+# If you want fixed clip sizing for a name, add clip=...
+# Example:
+# RCAT class=risky buy=1.8 sell=1.0 clip=1500
+s
