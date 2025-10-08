@@ -239,6 +239,21 @@ def spread_bps(bid: Optional[float], ask: Optional[float]) -> Optional[float]:
         return (ask-bid)/mid*10000.0
     return None
 
+
+def sanitize_price(value: Optional[float]) -> Optional[float]:
+    """Return a positive float price or None if the value is unusable."""
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    try:
+        fval = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(fval) or fval <= 0:
+        return None
+    return fval
+
 def place_ioc_buy(ib: IB, c: Contract, qty: int, bid: Optional[float], last: Optional[float]) -> Optional[float]:
     if qty<=0: return None
     lmt = (last or bid or 0.01) * 1.002
@@ -371,16 +386,36 @@ def run_live():
                 pnl_rows=[]
                 for sym, rec in targets.items():
                     try:
-                        c=contracts[sym]; t: Ticker = ib.ticker(c)
-                        last=t.last or t.close; bid=t.bid; ask=t.ask
-                        if not last: continue
+                        c = contracts[sym]
+                        t: Optional[Ticker] = ib.ticker(c)
+                        if t is None:
+                            continue
+
+                        last_candidates = [t.last, t.close]
+                        try:
+                            last_candidates.append(t.marketPrice())
+                        except Exception:
+                            pass
+                        last = None
+                        for cand in last_candidates:
+                            last = sanitize_price(cand)
+                            if last is not None:
+                                break
+                        if last is None:
+                            continue
+
+                        bid = sanitize_price(t.bid)
+                        ask = sanitize_price(t.ask)
 
                         spr = spread_bps(bid, ask)
                         spr_lim = SPREAD_LIMIT_RISKY if rec.get('class','risky')=='risky' else SPREAD_LIMIT_SAFE
                         if spr is not None and spr>spr_lim:
                             continue
 
-                        fallback = (t.open if (AM_START <= tnow <= dt.time(10,0) and t.open) else (t.close or last)) or last
+                        fallback_raw = (
+                            t.open if (AM_START <= tnow <= dt.time(10, 0) and t.open) else (t.close or last)
+                        )
+                        fallback = sanitize_price(fallback_raw) or last
                         feats = feats_map.get(sym, {})
                         ref = blended_ref(now, feats, fallback)
 
@@ -390,36 +425,35 @@ def run_live():
                         sell_mult = 1.0 - 0.15*zc
 
                         buy_pct  = max(0.1, float(rec['buy'])) * buy_mult
-sell_pct = max(0.1, float(rec['sell'])) * sell_mult
+                        sell_pct = max(0.1, float(rec['sell'])) * sell_mult
 
-# Ladder levels for HUD (and we use the middle level for core triggers)
-buy_levels  = [ ref * (1.0 - (buy_pct*m)/100.0)  for m in BUY_LADDER_MULTS ]
-sell_levels = [ ref * (1.0 + (sell_pct*m)/100.0) for m in SELL_LADDER_MULTS ]
+                        # Ladder levels for HUD (and we use the middle level for core triggers)
+                        buy_levels  = [ref * (1.0 - (buy_pct * m) / 100.0) for m in BUY_LADDER_MULTS]
+                        sell_levels = [ref * (1.0 + (sell_pct * m) / 100.0) for m in SELL_LADDER_MULTS]
 
-buy_a  = buy_levels[1]   # L2 (middle)
-sell_a = sell_levels[1]  # U2 (middle)
+                        buy_a  = buy_levels[1]  # L2 (middle)
+                        sell_a = sell_levels[1]  # U2 (middle)
+
+                        clip_override = rec.get('clip', None)
+                        clip_usd = (
+                            float(clip_override)
+                            if (clip_override is not None and float(clip_override) > 0)
+                            else dynamic_clip_usd(sym, last, targets)
+                        )
 
                         # ENTRY (never create short; pos>=0 is enforced by sync)
-if last <= buy_a:
-    clip_override = rec.get('clip', None)
-    clip_usd = float(clip_override) if (clip_override is not None and float(clip_override) > 0) else dynamic_clip_usd(sym, last, targets)
-    qty = int(max(0, clip_usd // max(0.01, last)))
-    if qty>0:
-        px = place_ioc_buy(ib, c, qty, bid, last)
-        if px:
-            write_fill('BUY', sym, qty, px, 'live_buy', 0.0)
-            newpos = max(0, pos[sym]) + qty
-            avg[sym] = ((avg[sym]*pos[sym] + px*qty)/newpos) if pos[sym]>0 else px
-            pos[sym]=max(0, newpos)
-            trail_hi[sym]=max(trail_hi[sym], px)
-                            if qty>0:
+                        if last <= buy_a:
+                            qty = int(max(0, clip_usd // max(0.01, last)))
+                            if qty > 0:
                                 px = place_ioc_buy(ib, c, qty, bid, last)
                                 if px:
                                     write_fill('BUY', sym, qty, px, 'live_buy', 0.0)
                                     newpos = max(0, pos[sym]) + qty
-                                    avg[sym] = ((avg[sym]*pos[sym] + px*qty)/newpos) if pos[sym]>0 else px
-                                    pos[sym]=max(0, newpos)
-                                    trail_hi[sym]=max(trail_hi[sym], px)
+                                    avg[sym] = (
+                                        (avg[sym] * pos[sym] + px * qty) / newpos
+                                    ) if pos[sym] > 0 else px
+                                    pos[sym] = max(0, newpos)
+                                    trail_hi[sym] = max(trail_hi[sym], px)
 
                         # BREAKEVEN TRIM (optional): if price >= avg, trim a fraction
                         if pos[sym]>0 and avg[sym]>0:
@@ -468,14 +502,23 @@ if last <= buy_a:
                                     rpnls[sym]+=rp; write_fill('SELL', sym, qty, px, 'live_trail', rp)
                                     pos[sym]=0; avg[sym]=0.0; trail_hi[sym]=0.0
 
-                        # HUD
-u = (last-avg[sym])*pos[sym] if pos[sym]>0 and avg[sym]>0 else 0.0
-clip_override = rec.get('clip', None)
-clip_usd = float(clip_override) if (clip_override is not None and float(clip_override) > 0) else dynamic_clip_usd(sym, last, targets)
-bl = ','.join(f"{x:.2f}" for x in buy_levels)
-sl = ','.join(f"{x:.2f}" for x in sell_levels)
-pnl_rows.append([now.isoformat(timespec='seconds'), sym, pos[sym], round(avg[sym],4), round(last,4), round(u,2), round(rpnls[sym],2)])
-log(f"{sym} last={last:.2f} ref={ref:.2f} z={z:.2f} BL=[{bl}] UL=[{sl}] pos={pos[sym]} avg={avg[sym]:.2f} clip=${clip_usd:.0f} uPnL={u:.2f}")
+                        # HUD / logging snapshot
+                        u = (last - avg[sym]) * pos[sym] if pos[sym] > 0 and avg[sym] > 0 else 0.0
+                        bl = ','.join(f"{x:.2f}" for x in buy_levels)
+                        sl = ','.join(f"{x:.2f}" for x in sell_levels)
+                        pnl_rows.append([
+                            now.isoformat(timespec='seconds'),
+                            sym,
+                            pos[sym],
+                            round(avg[sym], 4),
+                            round(last, 4),
+                            round(u, 2),
+                            round(rpnls[sym], 2),
+                        ])
+                        log(
+                            f"{sym} last={last:.2f} ref={ref:.2f} z={z:.2f} BL=[{bl}] UL=[{sl}] "
+                            f"pos={pos[sym]} avg={avg[sym]:.2f} clip=${clip_usd:.0f} uPnL={u:.2f}"
+                        )
 
                     except Exception as e:
                         log_error(f"loop symbol {sym} error: {e}", e)
@@ -492,14 +535,7 @@ log(f"{sym} last={last:.2f} ref={ref:.2f} z={z:.2f} BL=[{bl}] UL=[{sl}] pos={pos
             log("Reconnecting IB…")
 
 # ---------- Entry ----------
-if __name__=='__main__':
-    try:
-        run_live()
-    except Exception as e:
-        log_error("fatal error at entry", e)
-        raise
-
-if __name__=='__main__':
+if __name__ == '__main__':
     try:
         run_live()
     except Exception as e:
