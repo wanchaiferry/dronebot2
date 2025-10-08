@@ -343,6 +343,7 @@ def run_live():
             vwv: Dict[str,VWVState] = {sym: VWVState(window=120) for sym in targets}
 
             # Main tick loop
+            was_in_session: Optional[bool] = None
             while True:
                 # If socket dropped, break to outer reconnect
                 if not ib.isConnected():
@@ -352,7 +353,14 @@ def run_live():
                 now = now_eastern()
                 tnow = now.time()
                 in_session = (AM_START <= tnow < AM_END) or (PM_START <= tnow < PM_END)
-                
+
+                if was_in_session is None or in_session != was_in_session:
+                    if in_session:
+                        log("Inside trading session window; live logic active.")
+                    else:
+                        log("Outside trading session window; waiting for next window to trade.")
+                    was_in_session = in_session
+
                 # --- SYNC LIVE POSITIONS FROM IB ---
                 try:
                     broker_pos = read_broker_positions(ib)
