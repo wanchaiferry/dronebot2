@@ -29,14 +29,20 @@ HARD_STOP_PCT = float(os.getenv('HARD_STOP_PCT', '5.0'))
 TRAIL_PCT = float(os.getenv('TRAIL_PCT', '2.5'))
 MIN_TRIM_UPNL_PCT = 0.3
 LOOP_SLEEP_SEC = float(os.getenv('LOOP_SLEEP_SEC', '0.9'))
+BUY_COOLDOWN_SEC = float(os.getenv('BUY_COOLDOWN_SEC', '3.0'))
 
 # ---------- Sizing ----------
 CLASS_ALLOC = {'risky': 0.6, 'safe': 0.4}
 DEFAULT_EQUITY_CAP = float(os.getenv('LIVE_EQUITY', '150000'))
+TARGET_UTILIZATION_FRAC = float(os.getenv('TARGET_UTILIZATION_FRAC', '0.67'))
 
 # --- Ladder & clip tuning ---
-BUY_LADDER_MULTS  = [0.5, 1.0, 1.5]   # multipliers on buy% to show L1/L2/L3 below ref
-SELL_LADDER_MULTS = [0.5, 1.0, 1.5]   # multipliers on sell% to show U1/U2/U3 above ref
+# The middle rung remains the automated trigger; the surrounding levels provide
+# context for manual scaling. The multipliers are centered around 1.0 so that
+# the ladder displays around the live anchor rather than in front of it.
+BUY_LADDER_MULTS  = [0.75, 1.0, 1.25]   # multipliers on buy% to show L1/L2/L3 below ref
+SELL_LADDER_MULTS = [0.75, 1.0, 1.25]   # multipliers on sell% to show U1/U2/U3 above ref
+BUY_RUNG_CLIP_MULTS  = [1.0, 1.6, 2.3]   # clip scaling for successive ladder entries
 
 # Dynamic clip controls (per trade $ sizing), still overridable per-symbol via targets.txt clip=...
 SHOTS_PER_TICKER   = int(os.getenv('SHOTS_PER_TICKER', '12'))
@@ -220,7 +226,8 @@ def dynamic_clip_usd(sym: str, last_price: float, targets: Dict[str, dict]) -> f
     """Per-trade USD clip sized by class allocation and inversely by price."""
     klass = targets[sym].get('class','risky')
     class_frac = CLASS_ALLOC.get(klass, 0.5)
-    class_budget = DEFAULT_EQUITY_CAP * class_frac
+    effective_equity = DEFAULT_EQUITY_CAP * TARGET_UTILIZATION_FRAC
+    class_budget = effective_equity * class_frac
     n_class = sum(1 for r in targets.values() if r.get('class','risky')==klass) or 1
     per_ticker_budget = class_budget / n_class
     base_clip = per_ticker_budget / max(1, SHOTS_PER_TICKER)
@@ -254,25 +261,74 @@ def sanitize_price(value: Optional[float]) -> Optional[float]:
         return None
     return fval
 
-def place_ioc_buy(ib: IB, c: Contract, qty: int, bid: Optional[float], last: Optional[float]) -> Optional[float]:
-    if qty<=0: return None
-    lmt = (last or bid or 0.01) * 1.002
-    o = LimitOrder('BUY', qty, round(lmt, 4), tif='IOC')
-    tr = ib.placeOrder(c, o); ib.sleep(0.25)
-    fills = [f for f in ib.fills() if f.execution.orderId == tr.order.orderId]
-    if fills:
-        return sum(f.execution.avgPrice*f.execution.shares for f in fills)/max(1,sum(f.execution.shares for f in fills))
-    return None
+def _avg_price_and_qty(fills) -> Tuple[Optional[float], int]:
+    total_shares = 0
+    total_notional = 0.0
+    for f in fills:
+        shares = int(getattr(f.execution, 'shares', 0))
+        price = float(getattr(f.execution, 'avgPrice', 0.0) or 0.0)
+        if shares <= 0:
+            continue
+        total_shares += shares
+        total_notional += price * shares
+    if total_shares <= 0:
+        return (None, 0)
+    return (total_notional / total_shares, total_shares)
 
-def place_ioc_sell(ib: IB, c: Contract, qty: int, ask: Optional[float], last: Optional[float]) -> Optional[float]:
-    if qty<=0: return None
-    lmt = (last or ask or 0.01) * 0.998
-    o = LimitOrder('SELL', qty, round(lmt, 4), tif='IOC')
-    tr = ib.placeOrder(c, o); ib.sleep(0.25)
+
+def place_ioc_buy(
+    ib: IB,
+    c: Contract,
+    qty: int,
+    bid: Optional[float],
+    ask: Optional[float],
+    last: Optional[float],
+    urgency: str = 'normal',
+) -> Tuple[Optional[float], int]:
+    if qty <= 0:
+        return (None, 0)
+
+    ref_prices = [sanitize_price(x) for x in (last, ask, bid)]
+    ref_prices = [p for p in ref_prices if p is not None]
+    if not ref_prices:
+        ref_prices = [0.01]
+
+    base = max(ref_prices)
+    bump = 0.004 if urgency != 'urgent' else 0.02
+    lmt = max(0.01, base * (1.0 + bump))
+
+    o = LimitOrder('BUY', qty, round(lmt, 4), tif='IOC')
+    tr = ib.placeOrder(c, o)
+    ib.sleep(0.25)
     fills = [f for f in ib.fills() if f.execution.orderId == tr.order.orderId]
-    if fills:
-        return sum(f.execution.avgPrice*f.execution.shares for f in fills)/max(1,sum(f.execution.shares for f in fills))
-    return None
+    return _avg_price_and_qty(fills)
+
+
+def place_ioc_sell(
+    ib: IB,
+    c: Contract,
+    qty: int,
+    bid: Optional[float],
+    last: Optional[float],
+    urgency: str = 'normal',
+) -> Tuple[Optional[float], int]:
+    if qty <= 0:
+        return (None, 0)
+
+    ref_prices = [sanitize_price(x) for x in (last, bid)]
+    ref_prices = [p for p in ref_prices if p is not None]
+    if not ref_prices:
+        ref_prices = [0.01]
+
+    base = min(ref_prices)
+    bump = 0.004 if urgency != 'urgent' else 0.02
+    lmt = max(0.01, base * (1.0 - bump))
+
+    o = LimitOrder('SELL', qty, round(lmt, 4), tif='IOC')
+    tr = ib.placeOrder(c, o)
+    ib.sleep(0.25)
+    fills = [f for f in ib.fills() if f.execution.orderId == tr.order.orderId]
+    return _avg_price_and_qty(fills)
 
 # ---------- Core loop wrapped with resilience ----------
 # Extra safety features added:
@@ -342,6 +398,7 @@ def run_live():
             # Live state
             pos=defaultdict(int); avg=defaultdict(float); rpnls=defaultdict(float); trail_hi=defaultdict(float)
             vwv: Dict[str,VWVState] = {sym: VWVState(window=120) for sym in targets}
+            last_buy_time = defaultdict(float)
 
             # Main tick loop
             was_in_session: Optional[bool] = None
@@ -353,6 +410,7 @@ def run_live():
                 ib.sleep(LOOP_SLEEP_SEC)
 
                 now = now_eastern()
+                now_ts = now.timestamp()
                 tnow = now.time()
                 in_session = (AM_START <= tnow < AM_END) or (PM_START <= tnow < PM_END)
                 in_rth = AM_START <= tnow < PM_END
@@ -380,13 +438,18 @@ def run_live():
                             c = contracts.get(sym)
                             if c is not None:
                                 t: Ticker = ib.ticker(c)
-                                last=t.last or t.close; bid=t.bid
+                                last=t.last or t.close; bid=t.bid; ask=t.ask
                                 qty = abs(int(bpos))
                                 if qty > 0:
-                                    px = place_ioc_buy(ib, c, qty, bid, last)
-                                    if px:
-                                        write_fill('BUY', sym, qty, px, 'anti_short_cover', 0.0)
+                                    px, filled = place_ioc_buy(ib, c, qty, bid, ask, last, urgency='urgent')
+                                    if filled > 0 and px is not None:
+                                        write_fill('BUY', sym, filled, px, 'anti_short_cover', 0.0)
+                                        last_buy_time[sym] = now_ts
+                                    if filled >= qty:
                                         bpos = 0; bavg = 0.0
+                                    else:
+                                        log_error(f"anti-short cover incomplete for {sym}: wanted {qty}, filled {filled}")
+                                        continue
                         # Sync our local mirrors to broker's long-only state
                         if bpos <= 0:
                             pos[sym] = 0
@@ -441,6 +504,8 @@ def run_live():
                         zc = max(-2.0, min(2.0, z))
                         buy_mult  = max(0.25, 1.0 + 0.25*zc)
                         sell_mult = 1.0 - 0.15*zc
+                        buy_momentum_ok = z >= 0.0
+                        sell_momentum_ok = z <= 0.0
 
                         buy_pct  = max(0.1, float(rec['buy'])) * buy_mult
                         sell_pct = max(0.1, float(rec['sell'])) * sell_mult
@@ -449,9 +514,6 @@ def run_live():
                         buy_levels  = [ref * (1.0 - (buy_pct * m) / 100.0) for m in BUY_LADDER_MULTS]
                         sell_levels = [ref * (1.0 + (sell_pct * m) / 100.0) for m in SELL_LADDER_MULTS]
 
-                        buy_a  = buy_levels[1]  # L2 (middle)
-                        sell_a = sell_levels[1]  # U2 (middle)
-
                         clip_override = rec.get('clip', None)
                         clip_usd = (
                             float(clip_override)
@@ -459,54 +521,92 @@ def run_live():
                             else dynamic_clip_usd(sym, last, targets)
                         )
 
+                        # Ladder sizing plan (shares ramp with deeper levels)
+                        ladder_shares: List[int] = []
+                        cumulative_shares: List[int] = []
+                        total = 0
+                        for mult in BUY_RUNG_CLIP_MULTS:
+                            rung_clip = clip_usd * mult
+                            shares = max(1, int(math.ceil(rung_clip / max(0.01, last))))
+                            ladder_shares.append(shares)
+                            total += shares
+                            cumulative_shares.append(total)
+
+                        active_layers = 0
+                        for idx, threshold in enumerate(cumulative_shares):
+                            if pos[sym] >= threshold:
+                                active_layers = idx + 1
+
+                        desired_buy_layers = sum(1 for lvl in buy_levels if last <= lvl)
+                        desired_buy_layers = min(desired_buy_layers, len(ladder_shares))
+
                         # ENTRY (never create short; pos>=0 is enforced by sync)
-                        if last <= buy_a:
-                            qty = int(max(0, clip_usd // max(0.01, last)))
+                        cooldown_ready = now_ts - last_buy_time[sym] >= BUY_COOLDOWN_SEC
+                        if (
+                            cooldown_ready
+                            and buy_momentum_ok
+                            and desired_buy_layers > active_layers
+                        ):
+                            target_shares = cumulative_shares[desired_buy_layers - 1]
+                            qty = max(0, target_shares - pos[sym])
                             if qty > 0:
-                                px = place_ioc_buy(ib, c, qty, bid, last)
-                                if px:
-                                    write_fill('BUY', sym, qty, px, 'live_buy', 0.0)
-                                    newpos = max(0, pos[sym]) + qty
+                                px, filled = place_ioc_buy(ib, c, qty, bid, ask, last)
+                                last_buy_time[sym] = now_ts
+                                if filled > 0 and px is not None:
+                                    write_fill('BUY', sym, filled, px, 'ladder_buy', 0.0)
+                                    newpos = max(0, pos[sym]) + filled
                                     avg[sym] = (
-                                        (avg[sym] * pos[sym] + px * qty) / newpos
+                                        (avg[sym] * pos[sym] + px * filled) / newpos
                                     ) if pos[sym] > 0 else px
                                     pos[sym] = max(0, newpos)
-                                    trail_hi[sym] = max(trail_hi[sym], px)
+                                    if px is not None:
+                                        trail_hi[sym] = max(trail_hi[sym], px)
+
+                        # LADDER TRIMS (reduce layers as price rallies)
+                        if pos[sym] > 0 and sell_momentum_ok:
+                            levels_hit = sum(1 for lvl in sell_levels if last >= lvl)
+                            target_layers_after = max(0, active_layers - levels_hit)
+                            if target_layers_after < active_layers:
+                                target_shares = (
+                                    cumulative_shares[target_layers_after - 1]
+                                    if target_layers_after > 0
+                                    else 0
+                                )
+                                qty = max(0, pos[sym] - target_shares)
+                                if qty > 0:
+                                    px, filled = place_ioc_sell(ib, c, qty, bid, last)
+                                    if filled > 0 and px is not None:
+                                        rp = (px - avg[sym]) * filled
+                                        rpnls[sym] += rp
+                                        write_fill('SELL', sym, filled, px, 'ladder_sell', rp)
+                                        pos[sym] = max(0, pos[sym] - filled)
+                                        if pos[sym] == 0:
+                                            avg[sym] = 0.0
+                                            trail_hi[sym] = 0.0
 
                         # BREAKEVEN TRIM (optional): if price >= avg, trim a fraction
-                        if pos[sym]>0 and avg[sym]>0:
+                        if pos[sym]>0 and avg[sym]>0 and sell_momentum_ok:
                             upnl_bp = (last/avg[sym]-1.0)*10000.0
                             if upnl_bp >= BREAKEVEN_MIN_UPNL_BP and last >= avg[sym]:
                                 qty = max(1, int(pos[sym]*BREAKEVEN_TRIM_FRACTION))
-                                px = place_ioc_sell(ib, c, qty, ask, last)
-                                if px:
-                                    rp = (px-avg[sym])*qty
-                                    rpnls[sym]+=rp; write_fill('SELL', sym, qty, px, 'breakeven_trim', rp)
-                                    pos[sym] = max(0, pos[sym]-qty)
-                                    if pos[sym]==0:
-                                        avg[sym]=0.0; trail_hi[sym]=0.0
-
-                        # TRIM on anchor
-                        if pos[sym]>0 and last >= sell_a:
-                            u = (last-avg[sym])/max(1e-9,avg[sym])*100.0 if avg[sym]>0 else 0.0
-                            if u >= MIN_TRIM_UPNL_PCT:
-                                qty = max(1, int(pos[sym]*0.5))
-                                px = place_ioc_sell(ib, c, qty, ask, last)
-                                if px:
-                                    rp = (px-avg[sym])*qty
-                                    rpnls[sym]+=rp; write_fill('SELL', sym, qty, px, 'live_trim', rp)
-                                    pos[sym] = max(0, pos[sym]-qty)
+                                px, filled = place_ioc_sell(ib, c, qty, bid, last)
+                                if filled > 0 and px is not None:
+                                    rp = (px-avg[sym])*filled
+                                    rpnls[sym]+=rp; write_fill('SELL', sym, filled, px, 'breakeven_trim', rp)
+                                    pos[sym] = max(0, pos[sym]-filled)
                                     if pos[sym]==0:
                                         avg[sym]=0.0; trail_hi[sym]=0.0
 
                         # HARD STOP
                         if pos[sym]>0 and avg[sym]>0 and last <= avg[sym]*(1 - HARD_STOP_PCT/100.0):
                             qty=pos[sym]
-                            px = place_ioc_sell(ib, c, qty, ask, last)
-                            if px:
-                                rp = (px-avg[sym])*qty
-                                rpnls[sym]+=rp; write_fill('SELL', sym, qty, px, 'live_stop', rp)
-                                pos[sym]=0; avg[sym]=0.0; trail_hi[sym]=0.0
+                            px, filled = place_ioc_sell(ib, c, qty, bid, last, urgency='urgent')
+                            if filled > 0 and px is not None:
+                                rp = (px-avg[sym])*filled
+                                rpnls[sym]+=rp; write_fill('SELL', sym, filled, px, 'live_stop', rp)
+                                pos[sym]=max(0,pos[sym]-filled)
+                                if pos[sym]==0:
+                                    avg[sym]=0.0; trail_hi[sym]=0.0
 
                         # TRAIL
                         if pos[sym]>0:
@@ -514,11 +614,13 @@ def run_live():
                             trail_level = trail_hi[sym]*(1 - TRAIL_PCT/100.0)
                             if last <= trail_level and last>0:
                                 qty=pos[sym]
-                                px = place_ioc_sell(ib, c, qty, ask, last)
-                                if px:
-                                    rp = (px-avg[sym])*qty
-                                    rpnls[sym]+=rp; write_fill('SELL', sym, qty, px, 'live_trail', rp)
-                                    pos[sym]=0; avg[sym]=0.0; trail_hi[sym]=0.0
+                                px, filled = place_ioc_sell(ib, c, qty, bid, last, urgency='urgent')
+                                if filled > 0 and px is not None:
+                                    rp = (px-avg[sym])*filled
+                                    rpnls[sym]+=rp; write_fill('SELL', sym, filled, px, 'live_trail', rp)
+                                    pos[sym]=max(0,pos[sym]-filled)
+                                    if pos[sym]==0:
+                                        avg[sym]=0.0; trail_hi[sym]=0.0
 
                         # HUD / logging snapshot
                         u = (last - avg[sym]) * pos[sym] if pos[sym] > 0 and avg[sym] > 0 else 0.0
@@ -535,7 +637,8 @@ def run_live():
                         ])
                         log(
                             f"{sym} last={last:.2f} ref={ref:.2f} z={z:.2f} BL=[{bl}] UL=[{sl}] "
-                            f"pos={pos[sym]} avg={avg[sym]:.2f} clip=${clip_usd:.0f} uPnL={u:.2f}"
+                            f"pos={pos[sym]} avg={avg[sym]:.2f} layers={active_layers}/{len(ladder_shares)} "
+                            f"clip=${clip_usd:.0f} uPnL={u:.2f}"
                         )
 
                     except Exception as e:
