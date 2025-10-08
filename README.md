@@ -9,6 +9,13 @@ This repository contains a single Python trading bot that connects to Interactiv
 * Computes a live volume-weighted volatility (VWV) z-score per symbol using recent dollar-volume increments to adapt buy/sell thresholds dynamically.
 * Shows buy/sell ladder levels and submits Immediate-Or-Cancel (IOC) orders whenever the last price crosses the chosen anchor level. The bot only trades long, enforcing non-negative positions by syncing broker positions each loop and automatically covering any unexpected shorts.
 
+## Ladder Levels & Clips
+* Each ticker prints three ladder prices (L1/L2/L3 for buys and U1/U2/U3 for sells) around the blended reference. The multipliers remain centered so the mid rung reflects the live anchor while the outer rungs fan out for context.
+* The bot now treats all three ladders as automated triggers. When price trades through L1, L2, or L3 while VWV momentum is positive, it scales in with progressively larger clips sized from the live plan. As price bounces into U1/U2/U3 with negative VWV momentum, the bot unwinds the matching rungs so the book steps down in the same order it was built.
+* Ladder clips are denominated in USD and expand with depth (default multipliers are 1.0x/1.6x/2.3x of the base clip). The base clip itself is computed dynamically from the ticker's risk class, its share of the equity allocation, and the latest price; `targets.txt` can still override that baseline with a fixed `clip=` amount.
+* Capital sizing is tuned for roughly two-thirds utilization of the configured live equity (≈$100k when the default $150k budget is supplied). The dynamic plan recomputes share targets each loop so deeper ladders keep putting more notional to work as prices fall while trimming uses the same tiers when price reverses higher.
+* VWV momentum gating still enforces that automated buys only fire when the current z-score is positive (buying into strength) and ladder or breakeven sells only trigger on negative z-scores (selling into weakness). Hard stops and trailing exits remain ungated so protective logic fires immediately on sharp reversals.
+
 ## Risk Management
 * Applies spread filters with class-specific limits, configurable hard stops, trailing stops, and breakeven trims to lock in gains when prices recover to average cost.
 * Sizes trades dynamically based on per-class equity allocations, per-ticker budgets, and inverse price weighting; fixed USD clips can be supplied per ticker in `targets.txt`.
