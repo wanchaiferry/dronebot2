@@ -20,4 +20,3 @@ SPAI class=risky buy=1.8 sell=1.0
 # If you want fixed clip sizing for a name, add clip=...
 # Example:
 # RCAT class=risky buy=1.8 sell=1.0 clip=1500
-s
