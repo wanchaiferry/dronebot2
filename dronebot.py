@@ -344,6 +344,7 @@ def run_live():
 
             # Main tick loop
             was_in_session: Optional[bool] = None
+            was_in_rth: Optional[bool] = None
             while True:
                 # If socket dropped, break to outer reconnect
                 if not ib.isConnected():
@@ -353,13 +354,21 @@ def run_live():
                 now = now_eastern()
                 tnow = now.time()
                 in_session = (AM_START <= tnow < AM_END) or (PM_START <= tnow < PM_END)
+                in_rth = AM_START <= tnow < PM_END
 
                 if was_in_session is None or in_session != was_in_session:
                     if in_session:
                         log("Inside trading session window; live logic active.")
                     else:
-                        log("Outside trading session window; waiting for next window to trade.")
+                        log("Outside trading session window; continuing with regular-hours logic only.")
                     was_in_session = in_session
+
+                if was_in_rth is None or in_rth != was_in_rth:
+                    if in_rth:
+                        log("Within regular trading hours; core logic enabled.")
+                    else:
+                        log("Outside regular trading hours; idling until market reopens.")
+                    was_in_rth = in_rth
 
                 # --- SYNC LIVE POSITIONS FROM IB ---
                 try:
@@ -387,7 +396,7 @@ def run_live():
                 except Exception as e:
                     log_error(f"position sync error: {e}")
 
-                if not in_session:
+                if not in_rth:
                     # idle off-session, but keep running
                     continue
 
