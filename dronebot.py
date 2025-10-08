@@ -288,7 +288,8 @@ def read_broker_positions(ib: IB) -> Dict[str, Tuple[int,float]]:
     """Return {symbol: (pos, avgCost)} from IBKR."""
     res: Dict[str, Tuple[int,float]] = {}
     try:
-        for p in ib.positions():
+        positions = ib.reqPositions()
+        for p in positions:
             try:
                 sym = p.contract.symbol.upper()
             except Exception:
