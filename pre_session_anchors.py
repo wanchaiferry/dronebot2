@@ -97,40 +97,6 @@ def previous_trading_days(day: dt.date, count: int) -> List[dt.date]:
     return days
 
 
-def fetch_lookback_minute_bars(
-    ib: IB, sym: str, dates: Sequence[dt.date]
-) -> List[Tuple[dt.date, List[object]]]:
-    if not dates:
-        return []
-
-    contract = Stock(sym, "SMART", "USD")
-    ib.qualifyContracts(contract)
-
-    latest = max(dates)
-    earliest = min(dates)
-    calendar_span = (latest - earliest).days
-    duration_days = max(calendar_span + 3, ANCHOR_LOOKBACK_DAYS + 2)
-    end_dt = ib_end_dt_us_eastern(latest.strftime("%Y-%m-%d"))
-
-    bars = ib.reqHistoricalData(
-        contract,
-        endDateTime=end_dt,
-        durationStr=f"{duration_days} D",
-        barSizeSetting="1 min",
-        whatToShow="TRADES",
-        useRTH=False,
-        formatDate=1,
-    )
-
-    by_date: Dict[dt.date, List[object]] = {date: [] for date in dates}
-    for bar in bars:
-        bar_date = dt.datetime.fromtimestamp(bar.date.timestamp(), TZ).date()
-        if bar_date in by_date:
-            by_date[bar_date].append(bar)
-
-    return [(date, by_date.get(date, [])) for date in dates]
-
-
 def bars_in_window(bars: List[object], start: dt.time, end: dt.time) -> List[object]:
     def eastern_time(bar) -> dt.time:
         return dt.datetime.fromtimestamp(bar.date.timestamp(), TZ).time()
@@ -214,14 +180,14 @@ def run(ymd: Optional[str], targets_path: str) -> None:
 
     for sym in sorted(targets):
         rec = targets[sym]
-        try:
-            daily_bars = fetch_lookback_minute_bars(ib, sym, lookback_dates)
-        except Exception as exc:
-            log(
-                f"{sym}: error fetching lookback bars using {lookback_dates[0].isoformat()}"
-                f" through {lookback_dates[-1].isoformat()}: {exc}"
-            )
-            continue
+        daily_bars: List[Tuple[dt.date, List[object]]] = []
+        for date in lookback_dates:
+            try:
+                _contract, bars = fetch_today_minute_bars(ib, sym, date.strftime("%Y-%m-%d"))
+            except Exception as exc:
+                log(f"{sym}: error fetching bars for {date.isoformat()}: {exc}")
+                bars = []
+            daily_bars.append((date, bars))
 
         most_recent_bars = next((bars for _date, bars in daily_bars if bars), [])
         last = most_recent_bars[-1].close if most_recent_bars else None
