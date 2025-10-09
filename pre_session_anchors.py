@@ -178,10 +178,10 @@ def anchor_for_window(
     base_buy_levels = level_grid(blended, buy_pct, BUY_LADDER_MULTS, "down")
     base_sell_levels = level_grid(blended, sell_pct, SELL_LADDER_MULTS, "up")
 
-    # Move the midpoint (L2) farther from the reference for display (doubling
-    # its base distance) while stretching the surrounding rungs so their
-    # distance from the original anchor spacing is multiplied by the 5×/3×
-    # risk-class factor.
+    # Move the midpoint farther from the reference for display (doubling its
+    # base distance) while stretching the surrounding rungs so their distance
+    # from the original anchor spacing is multiplied by the 5×/3× risk-class
+    # factor.
     buy_levels = widen_levels_for_display(
         blended,
         base_buy_levels,
@@ -281,18 +281,12 @@ def run(ymd: Optional[str], targets_path: str) -> None:
     ib.disconnect()
 
     headers = ["SYM", "CLASS", "LAST"]
+    buy_count = len(BUY_LADDER_MULTS)
+    sell_count = len(SELL_LADDER_MULTS)
     for label, _, _ in windows:
-        headers.extend(
-            [
-                f"{label}_ANC",
-                f"{label}_L1",
-                f"{label}_L2",
-                f"{label}_L3",
-                f"{label}_U1",
-                f"{label}_U2",
-                f"{label}_U3",
-            ]
-        )
+        headers.append(f"{label}_ANC")
+        headers.extend(f"{label}_L{idx+1}" for idx in range(buy_count))
+        headers.extend(f"{label}_U{idx+1}" for idx in range(sell_count))
     headers.extend(["CLIP$", "CLIP SH"])
     print("\n" + " ".join(f"{h:>8}" for h in headers))
     print("-" * (9 * len(headers)))
