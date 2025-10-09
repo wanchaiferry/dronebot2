@@ -42,6 +42,7 @@ TARGET_UTILIZATION_FRAC = float(os.getenv('TARGET_UTILIZATION_FRAC', '0.67'))
 # the ladder displays around the live anchor rather than in front of it.
 BUY_LADDER_MULTS  = [0.75, 1.0, 1.25]   # multipliers on buy% to show L1/L2/L3 below ref
 SELL_LADDER_MULTS = [0.75, 1.0, 1.25]   # multipliers on sell% to show U1/U2/U3 above ref
+SPREAD_CLASS_MULTS = {'risky': 5.0, 'safe': 3.0}
 BUY_RUNG_CLIP_MULTS  = [1.0, 1.6, 2.3]   # clip scaling for successive ladder entries
 
 # Dynamic clip controls (per trade $ sizing), still overridable per-symbol via targets.txt clip=...
@@ -496,7 +497,8 @@ def run_live():
                         ask = sanitize_price(t.ask)
 
                         spr = spread_bps(bid, ask)
-                        spr_lim = SPREAD_LIMIT_RISKY if rec.get('class','risky')=='risky' else SPREAD_LIMIT_SAFE
+                        classification = str(rec.get('class', 'risky')).lower()
+                        spr_lim = SPREAD_LIMIT_RISKY if classification == 'risky' else SPREAD_LIMIT_SAFE
                         if spr is not None and spr>spr_lim:
                             continue
 
@@ -514,8 +516,15 @@ def run_live():
                         buy_momentum_ok = z >= 0.0
                         sell_momentum_ok = z <= 0.0
 
-                        buy_pct  = max(0.1, float(rec['buy'])) * buy_mult
-                        sell_pct = max(0.1, float(rec['sell'])) * sell_mult
+                        spread_class_mult = SPREAD_CLASS_MULTS.get(
+                            classification, SPREAD_CLASS_MULTS['risky']
+                        )
+                        base_buy_pct = max(0.1, float(rec['buy']))
+                        base_sell_pct = max(0.1, float(rec['sell']))
+                        # spread_class_mult is 5× for risky symbols and 3× for safe symbols,
+                        # ensuring these widened anchors line up with the preview tool.
+                        buy_pct = base_buy_pct * spread_class_mult * buy_mult
+                        sell_pct = base_sell_pct * spread_class_mult * sell_mult
 
                         # Ladder levels for HUD (and we use the middle level for core triggers)
                         buy_levels  = [ref * (1.0 - (buy_pct * m) / 100.0) for m in BUY_LADDER_MULTS]
