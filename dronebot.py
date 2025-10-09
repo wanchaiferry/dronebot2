@@ -42,8 +42,7 @@ TARGET_UTILIZATION_FRAC = float(os.getenv('TARGET_UTILIZATION_FRAC', '0.67'))
 # the ladder displays around the live anchor rather than in front of it.
 BUY_LADDER_MULTS  = [0.75, 1.0, 1.25]   # multipliers on buy% to show L1/L2/L3 below ref
 SELL_LADDER_MULTS = [0.75, 1.0, 1.25]   # multipliers on sell% to show U1/U2/U3 above ref
-SPREAD_CLASS_MULTS = {'risky': 5.0, 'safe': 3.0}  # widens HUD spacing while L2 stays put
-ANCHOR_DISTANCE_MULT = 2.0  # display-only shift: L2 moves twice as far from the ref
+SPREAD_CLASS_MULTS = {'risky': 5.0, 'safe': 3.0}
 BUY_RUNG_CLIP_MULTS  = [1.0, 1.6, 2.3]   # clip scaling for successive ladder entries
 
 # Identify the ladder index that represents the core anchor (L2) so we can
@@ -608,8 +607,10 @@ def run_live():
                         )
                         base_buy_pct = max(0.1, float(rec['buy']))
                         base_sell_pct = max(0.1, float(rec['sell']))
-                        buy_pct = base_buy_pct * buy_mult
-                        sell_pct = base_sell_pct * sell_mult
+                        # spread_class_mult is 5× for risky symbols and 3× for safe symbols,
+                        # ensuring these widened anchors line up with the preview tool.
+                        buy_pct = base_buy_pct * spread_class_mult * buy_mult
+                        sell_pct = base_sell_pct * spread_class_mult * sell_mult
 
                         # Ladder levels for trading logic (L2 remains the live trigger)
                         buy_levels = [

@@ -22,7 +22,6 @@ from dronebot import (
     BUY_LADDER_MULTS,
     BUY_LADDER_ANCHOR_IDX,
     SELL_LADDER_MULTS,
-    SELL_LADDER_ANCHOR_IDX,
     SPREAD_CLASS_MULTS,
     AM_START,
     AM_END,
@@ -221,10 +220,10 @@ def run(ymd: Optional[str], targets_path: str) -> None:
         )
         base_buy_pct = max(0.1, float(rec.get("buy", 2.0)))
         base_sell_pct = max(0.1, float(rec.get("sell", 1.5)))
-        # Keep L2 identical to the live trigger; we widen L1/L3 after computing the
-        # base ladder so the preview mirrors the HUD spacing without moving anchors.
-        buy_pct = base_buy_pct
-        sell_pct = base_sell_pct
+        # The live bot also multiplies by spread_class_mult (5× risky / 3× safe),
+        # so these preview anchors should match the in-session ladder widths.
+        buy_pct = base_buy_pct * spread_class_mult
+        sell_pct = base_sell_pct * spread_class_mult
         clip_usd = resolve_clip_usd(sym, last, rec, targets)
         shares = int(round((clip_usd or 0) / last)) if clip_usd and last else None
 
