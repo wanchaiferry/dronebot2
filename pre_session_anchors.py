@@ -11,6 +11,8 @@ import datetime as dt
 import os
 from typing import Dict, List, Optional, Sequence, Tuple
 
+import dronebot
+
 from ib_insync import IB
 
 from dronebot import (
@@ -20,7 +22,6 @@ from dronebot import (
     CLIENT_ID,
     TARGETS_TXT,
     BUY_LADDER_MULTS,
-    BUY_LADDER_ANCHOR_IDX,
     SELL_LADDER_MULTS,
     SPREAD_CLASS_MULTS,
     AM_START,
@@ -33,6 +34,32 @@ from dronebot import (
     blended_ref,
     dynamic_clip_usd,
     widen_levels_for_display,
+)
+
+
+def _anchor_index(mults: Sequence[float]) -> int:
+    """Return the index of the rung closest to the blended anchor."""
+
+    if not mults:
+        return 0
+
+    try:
+        return mults.index(1.0)
+    except ValueError:
+        return min(range(len(mults)), key=lambda idx: abs(mults[idx] - 1.0))
+
+
+def _resolve_anchor_idx(mults: Sequence[float], value: Optional[int]) -> int:
+    if isinstance(value, int) and 0 <= value < len(mults):
+        return value
+    return _anchor_index(mults)
+
+
+BUY_LADDER_ANCHOR_IDX = _resolve_anchor_idx(
+    BUY_LADDER_MULTS, getattr(dronebot, "BUY_LADDER_ANCHOR_IDX", None)
+)
+SELL_LADDER_ANCHOR_IDX = _resolve_anchor_idx(
+    SELL_LADDER_MULTS, getattr(dronebot, "SELL_LADDER_ANCHOR_IDX", None)
 )
 
 # Use a separate client ID so we do not interfere with the live bot.
