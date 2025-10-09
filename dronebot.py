@@ -1,4 +1,4 @@
-# dronebot.py — LIVE ONLY (3 sliders + blended reference + VWV) with crash-proof loop & reconnect
+# dronebot.py — LIVE ONLY (ladder HUD + blended reference + VWV) with crash-proof loop & reconnect
 from __future__ import annotations
 import os, csv, math, time, traceback
 import datetime as dt
@@ -41,12 +41,12 @@ TARGET_UTILIZATION_FRAC = float(os.getenv('TARGET_UTILIZATION_FRAC', '0.67'))
 # context for manual scaling. The multipliers are centered around 1.0 so that
 # the ladder displays around the live anchor rather than in front of it.
 ANCHOR_DISTANCE_MULT = float(os.getenv("ANCHOR_DISTANCE_MULT", "2.0"))
-BUY_LADDER_MULTS  = [0.75, 1.0, 1.25]   # multipliers on buy% to show L1/L2/L3 below ref
-SELL_LADDER_MULTS = [0.75, 1.0, 1.25]   # multipliers on sell% to show U1/U2/U3 above ref
+BUY_LADDER_MULTS  = [0.75, 0.85, 0.92, 1.0, 1.08, 1.15, 1.25]   # multipliers on buy% ladder
+SELL_LADDER_MULTS = [0.75, 0.85, 0.92, 1.0, 1.08, 1.15, 1.25]   # multipliers on sell% ladder
 SPREAD_CLASS_MULTS = {'risky': 5.0, 'safe': 3.0}
-BUY_RUNG_CLIP_MULTS  = [1.0, 1.6, 2.3]   # clip scaling for successive ladder entries
+BUY_RUNG_CLIP_MULTS  = [1.0, 1.2, 1.4, 1.6, 1.85, 2.1, 2.3]   # clip scaling for successive ladder entries
 
-# Identify the ladder index that represents the core anchor (L2) so we can
+# Identify the ladder index that represents the core anchor (middle rung) so we can
 # stretch the surrounding HUD levels without shifting the trigger itself.
 def _anchor_index(mults: Sequence[float]) -> int:
     if not mults:
@@ -71,19 +71,19 @@ def widen_levels_for_display(
 ) -> List[Optional[float]]:
     """Return a widened copy of the ladder for HUD/logging purposes.
 
-    The anchor rung (L2) is pushed farther from the blended reference by
+    The anchor rung is pushed farther from the blended reference by
     ``ANCHOR_DISTANCE_MULT`` (display-only) while the surrounding levels are
     stretched by ``spread_mult`` (5× risky / 3× safe) relative to the original
     anchor spacing. For buys we prevent levels from crossing above the blended
     reference, and for sells we avoid dropping below it.
 
-    Example: assume the base ladder has L2 sitting 3% below the reference,
-    L1 is 2.25% below, and L3 is 3.75% below. With ``spread_mult`` == 5 the
-    display anchor shifts to 6% below the reference (double the base distance),
-    while L1 and L3 are widened so that their original offsets from L2 are
-    multiplied 5× around the new anchor. In other words, we multiply the
-    *distance from L2* for the outer rungs after moving L2 itself farther from
-    the reference.
+    Example: assume the base ladder has the anchor sitting 3% below the reference,
+    the nearest rung is 2.25% below, and the deepest rung is 3.75% below. With
+    ``spread_mult`` == 5 the display anchor shifts to 6% below the reference
+    (double the base distance), while the surrounding rungs are widened so that
+    their original offsets from the anchor are multiplied 5×. In other words, we
+    multiply the *distance from the anchor* for the outer rungs after moving the
+    anchor itself farther from the reference.
     """
 
     base_levels = [lvl if lvl is None else float(lvl) for lvl in levels]
@@ -615,7 +615,7 @@ def run_live():
                         buy_pct = base_buy_pct * spread_class_mult * buy_mult
                         sell_pct = base_sell_pct * spread_class_mult * sell_mult
 
-                        # Ladder levels for trading logic (L2 remains the live trigger)
+                        # Ladder levels for trading logic (middle rung remains the live trigger)
                         buy_levels = [
                             ref * (1.0 - (buy_pct * m) / 100.0) for m in BUY_LADDER_MULTS
                         ]
@@ -623,7 +623,7 @@ def run_live():
                             ref * (1.0 + (sell_pct * m) / 100.0) for m in SELL_LADDER_MULTS
                         ]
 
-                        # HUD/logging versions stretch L1/L3 around the same L2 anchor
+                        # HUD/logging versions stretch the surrounding rungs around the same anchor
                         display_buy_levels = widen_levels_for_display(
                             ref,
                             buy_levels,
