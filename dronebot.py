@@ -40,6 +40,7 @@ TARGET_UTILIZATION_FRAC = float(os.getenv('TARGET_UTILIZATION_FRAC', '0.67'))
 # The middle rung remains the automated trigger; the surrounding levels provide
 # context for manual scaling. The multipliers are centered around 1.0 so that
 # the ladder displays around the live anchor rather than in front of it.
+ANCHOR_DISTANCE_MULT = float(os.getenv("ANCHOR_DISTANCE_MULT", "2.0"))
 BUY_LADDER_MULTS  = [0.75, 1.0, 1.25]   # multipliers on buy% to show L1/L2/L3 below ref
 SELL_LADDER_MULTS = [0.75, 1.0, 1.25]   # multipliers on sell% to show U1/U2/U3 above ref
 SPREAD_CLASS_MULTS = {'risky': 5.0, 'safe': 3.0}
@@ -100,8 +101,10 @@ def widen_levels_for_display(
     if anchor_level is None:
         return widened
 
-    if ref is not None and ANCHOR_DISTANCE_MULT > 1.0:
-        anchor_shift = (anchor_level - ref) * ANCHOR_DISTANCE_MULT
+    anchor_distance_mult = globals().get("ANCHOR_DISTANCE_MULT", 2.0)
+
+    if ref is not None and anchor_distance_mult > 1.0:
+        anchor_shift = (anchor_level - ref) * anchor_distance_mult
         anchor_target = ref + anchor_shift
 
         if direction == 'down' and anchor_target > ref and ref > 0:
