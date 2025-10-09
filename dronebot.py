@@ -30,6 +30,12 @@ TRAIL_PCT = float(os.getenv('TRAIL_PCT', '2.5'))
 MIN_TRIM_UPNL_PCT = 0.3
 LOOP_SLEEP_SEC = float(os.getenv('LOOP_SLEEP_SEC', '0.9'))
 BUY_COOLDOWN_SEC = float(os.getenv('BUY_COOLDOWN_SEC', '3.0'))
+VELOCITY_WINDOW_SEC = float(os.getenv('VELOCITY_WINDOW_SEC', '8.0'))
+VELOCITY_TRIGGER_BPS_PER_SEC = float(os.getenv('VELOCITY_TRIGGER_BPS_PER_SEC', '120.0'))
+VELOCITY_EXIT_BPS_PER_SEC = float(os.getenv('VELOCITY_EXIT_BPS_PER_SEC', '40.0'))
+VELOCITY_TRADE_COOLDOWN_SEC = float(os.getenv('VELOCITY_TRADE_COOLDOWN_SEC', '45.0'))
+VELOCITY_TRAIL_PCT = float(os.getenv('VELOCITY_TRAIL_PCT', '0.75'))
+VELOCITY_MAX_HOLD_SEC = float(os.getenv('VELOCITY_MAX_HOLD_SEC', '60.0'))
 
 # ---------- Sizing ----------
 CLASS_ALLOC = {'risky': 0.6, 'safe': 0.4}
@@ -310,6 +316,33 @@ class VWVState:
         if z < -6: z = -6.0
         return z
 
+class VelocityTracker:
+    """Track short-term price velocity in bps/sec over a sliding window."""
+
+    def __init__(self, window_seconds: float = 8.0):
+        self.window_seconds = max(1.0, float(window_seconds))
+        self.samples: deque[Tuple[float, float]] = deque()
+
+    def update(self, timestamp: float, price: Optional[float]) -> Optional[float]:
+        if price is None or not math.isfinite(price) or price <= 0:
+            return None
+
+        self.samples.append((timestamp, float(price)))
+        while self.samples and timestamp - self.samples[0][0] > self.window_seconds:
+            self.samples.popleft()
+
+        if len(self.samples) < 2:
+            return None
+
+        old_ts, old_price = self.samples[0]
+        dt_sec = max(1e-6, timestamp - old_ts)
+        if old_price <= 0:
+            return None
+
+        change = (price - old_price) / old_price
+        return (change * 10000.0) / dt_sec
+
+
 # Dynamic clip sizing
 
 def dynamic_clip_usd(sym: str, last_price: float, targets: Dict[str, dict]) -> float:
@@ -495,6 +528,11 @@ def run_live():
             # Live state
             pos=defaultdict(int); avg=defaultdict(float); rpnls=defaultdict(float); trail_hi=defaultdict(float)
             vwv: Dict[str,VWVState] = {sym: VWVState(window=120) for sym in targets}
+            velocity_trackers: Dict[str, VelocityTracker] = {
+                sym: VelocityTracker(VELOCITY_WINDOW_SEC) for sym in targets
+            }
+            velocity_active_until = defaultdict(float)
+            velocity_last_trigger = defaultdict(float)
             last_buy_time = defaultdict(float)
 
             # Main tick loop
@@ -605,6 +643,10 @@ def run_live():
                         buy_momentum_ok = z >= 0.0
                         sell_momentum_ok = z <= 0.0
 
+                        vel = velocity_trackers[sym].update(now_ts, last)
+                        if vel is None:
+                            vel = 0.0
+
                         spread_class_mult = SPREAD_CLASS_MULTS.get(
                             classification, SPREAD_CLASS_MULTS['risky']
                         )
@@ -646,6 +688,33 @@ def run_live():
                             else dynamic_clip_usd(sym, last, targets)
                         )
 
+                        buy_cooldown_ready = now_ts - last_buy_time[sym] >= BUY_COOLDOWN_SEC
+                        velocity_ready = now_ts - velocity_last_trigger[sym] >= VELOCITY_TRADE_COOLDOWN_SEC
+                        if (
+                            buy_cooldown_ready
+                            and velocity_ready
+                            and buy_momentum_ok
+                            and vel >= VELOCITY_TRIGGER_BPS_PER_SEC
+                        ):
+                            velocity_qty = max(
+                                1, int(math.ceil((clip_usd * 0.5) / max(0.01, last)))
+                            )
+                            if velocity_qty > 0:
+                                px, filled = place_ioc_buy(
+                                    ib, c, velocity_qty, bid, ask, last, urgency='urgent'
+                                )
+                                if filled > 0 and px is not None:
+                                    write_fill('BUY', sym, filled, px, 'velocity_buy', 0.0)
+                                    newpos = max(0, pos[sym]) + filled
+                                    avg[sym] = (
+                                        (avg[sym] * pos[sym] + px * filled) / newpos
+                                    ) if pos[sym] > 0 else px
+                                    pos[sym] = max(0, newpos)
+                                    trail_hi[sym] = max(trail_hi[sym], px)
+                                    velocity_last_trigger[sym] = now_ts
+                                    velocity_active_until[sym] = now_ts + VELOCITY_MAX_HOLD_SEC
+                                    last_buy_time[sym] = now_ts
+
                         # Ladder sizing plan (shares ramp with deeper levels)
                         ladder_shares: List[int] = []
                         cumulative_shares: List[int] = []
@@ -666,7 +735,7 @@ def run_live():
                         desired_buy_layers = min(desired_buy_layers, len(ladder_shares))
 
                         # ENTRY (never create short; pos>=0 is enforced by sync)
-                        cooldown_ready = now_ts - last_buy_time[sym] >= BUY_COOLDOWN_SEC
+                        cooldown_ready = buy_cooldown_ready
                         if (
                             cooldown_ready
                             and buy_momentum_ok
@@ -686,6 +755,45 @@ def run_live():
                                     pos[sym] = max(0, newpos)
                                     if px is not None:
                                         trail_hi[sym] = max(trail_hi[sym], px)
+
+                        velocity_active = (
+                            velocity_active_until[sym] > now_ts and pos[sym] > 0
+                        )
+                        if velocity_active and vel <= -VELOCITY_EXIT_BPS_PER_SEC:
+                            qty = pos[sym]
+                            if qty > 0:
+                                px, filled = place_ioc_sell(
+                                    ib, c, qty, bid, last, urgency='urgent'
+                                )
+                                if filled > 0 and px is not None:
+                                    rp = (px - avg[sym]) * filled
+                                    rpnls[sym] += rp
+                                    write_fill('SELL', sym, filled, px, 'velocity_exit', rp)
+                                    pos[sym] = max(0, pos[sym] - filled)
+                                    if pos[sym] == 0:
+                                        avg[sym] = 0.0
+                                        trail_hi[sym] = 0.0
+                                        velocity_active_until[sym] = 0.0
+
+                        if velocity_active and now_ts >= velocity_active_until[sym]:
+                            qty = pos[sym]
+                            if qty > 0:
+                                px, filled = place_ioc_sell(
+                                    ib, c, qty, bid, last, urgency='urgent'
+                                )
+                                if filled > 0 and px is not None:
+                                    rp = (px - avg[sym]) * filled
+                                    rpnls[sym] += rp
+                                    write_fill('SELL', sym, filled, px, 'velocity_timeout', rp)
+                                    pos[sym] = max(0, pos[sym] - filled)
+                                    if pos[sym] == 0:
+                                        avg[sym] = 0.0
+                                        trail_hi[sym] = 0.0
+                                        velocity_active_until[sym] = 0.0
+
+                        velocity_active = (
+                            velocity_active_until[sym] > now_ts and pos[sym] > 0
+                        )
 
                         # LADDER TRIMS (reduce layers as price rallies)
                         if pos[sym] > 0 and sell_momentum_ok:
@@ -708,6 +816,7 @@ def run_live():
                                         if pos[sym] == 0:
                                             avg[sym] = 0.0
                                             trail_hi[sym] = 0.0
+                                            velocity_active_until[sym] = 0.0
 
                         # BREAKEVEN TRIM (optional): if price >= avg, trim a fraction
                         if pos[sym]>0 and avg[sym]>0 and sell_momentum_ok:
@@ -720,7 +829,7 @@ def run_live():
                                     rpnls[sym]+=rp; write_fill('SELL', sym, filled, px, 'breakeven_trim', rp)
                                     pos[sym] = max(0, pos[sym]-filled)
                                     if pos[sym]==0:
-                                        avg[sym]=0.0; trail_hi[sym]=0.0
+                                        avg[sym]=0.0; trail_hi[sym]=0.0; velocity_active_until[sym]=0.0
 
                         # HARD STOP
                         if pos[sym]>0 and avg[sym]>0 and last <= avg[sym]*(1 - HARD_STOP_PCT/100.0):
@@ -731,12 +840,15 @@ def run_live():
                                 rpnls[sym]+=rp; write_fill('SELL', sym, filled, px, 'live_stop', rp)
                                 pos[sym]=max(0,pos[sym]-filled)
                                 if pos[sym]==0:
-                                    avg[sym]=0.0; trail_hi[sym]=0.0
+                                    avg[sym]=0.0; trail_hi[sym]=0.0; velocity_active_until[sym]=0.0
 
                         # TRAIL
                         if pos[sym]>0:
                             trail_hi[sym]=max(trail_hi[sym], last)
-                            trail_level = trail_hi[sym]*(1 - TRAIL_PCT/100.0)
+                            trail_pct = TRAIL_PCT
+                            if velocity_active:
+                                trail_pct = min(TRAIL_PCT, VELOCITY_TRAIL_PCT)
+                            trail_level = trail_hi[sym]*(1 - trail_pct/100.0)
                             if last <= trail_level and last>0:
                                 qty=pos[sym]
                                 px, filled = place_ioc_sell(ib, c, qty, bid, last, urgency='urgent')
@@ -745,7 +857,7 @@ def run_live():
                                     rpnls[sym]+=rp; write_fill('SELL', sym, filled, px, 'live_trail', rp)
                                     pos[sym]=max(0,pos[sym]-filled)
                                     if pos[sym]==0:
-                                        avg[sym]=0.0; trail_hi[sym]=0.0
+                                        avg[sym]=0.0; trail_hi[sym]=0.0; velocity_active_until[sym]=0.0
 
                         # HUD / logging snapshot
                         u = (last - avg[sym]) * pos[sym] if pos[sym] > 0 and avg[sym] > 0 else 0.0
@@ -761,9 +873,10 @@ def run_live():
                             round(rpnls[sym], 2),
                         ])
                         log(
-                            f"{sym} last={last:.2f} ref={ref:.2f} z={z:.2f} BL=[{bl}] UL=[{sl}] "
-                            f"pos={pos[sym]} avg={avg[sym]:.2f} layers={active_layers}/{len(ladder_shares)} "
-                            f"clip=${clip_usd:.0f} uPnL={u:.2f}"
+                            f"{sym} last={last:.2f} ref={ref:.2f} z={z:.2f} vel={vel:.1f} "
+                            f"BL=[{bl}] UL=[{sl}] pos={pos[sym]} avg={avg[sym]:.2f} "
+                            f"layers={active_layers}/{len(ladder_shares)} clip=${clip_usd:.0f} "
+                            f"uPnL={u:.2f}"
                         )
 
                     except Exception as e:
