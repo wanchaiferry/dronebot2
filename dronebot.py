@@ -397,6 +397,7 @@ def run_live():
 
             # Live state
             pos=defaultdict(int); avg=defaultdict(float); rpnls=defaultdict(float); trail_hi=defaultdict(float)
+            ladder_layers_plan = defaultdict(int)
             vwv: Dict[str,VWVState] = {sym: VWVState(window=120) for sym in targets}
             last_buy_time = defaultdict(float)
 
@@ -537,6 +538,8 @@ def run_live():
                             if pos[sym] >= threshold:
                                 active_layers = idx + 1
 
+                        ladder_layers_plan[sym] = max(ladder_layers_plan[sym], active_layers)
+
                         desired_buy_layers = sum(1 for lvl in buy_levels if last <= lvl)
                         desired_buy_layers = min(desired_buy_layers, len(ladder_shares))
 
@@ -559,13 +562,18 @@ def run_live():
                                         (avg[sym] * pos[sym] + px * filled) / newpos
                                     ) if pos[sym] > 0 else px
                                     pos[sym] = max(0, newpos)
+                                    new_layers = sum(1 for threshold in cumulative_shares if pos[sym] >= threshold)
+                                    if new_layers > ladder_layers_plan[sym]:
+                                        ladder_layers_plan[sym] = new_layers
                                     if px is not None:
                                         trail_hi[sym] = max(trail_hi[sym], px)
 
                         # LADDER TRIMS (reduce layers as price rallies)
                         if pos[sym] > 0 and sell_momentum_ok:
                             levels_hit = sum(1 for lvl in sell_levels if last >= lvl)
-                            target_layers_after = max(0, active_layers - levels_hit)
+                            planned_layers = min(len(ladder_shares), max(active_layers, ladder_layers_plan[sym]))
+                            target_layers_after = max(0, planned_layers - levels_hit)
+                            target_layers_after = min(target_layers_after, active_layers)
                             if target_layers_after < active_layers:
                                 target_shares = (
                                     cumulative_shares[target_layers_after - 1]
@@ -583,6 +591,10 @@ def run_live():
                                         if pos[sym] == 0:
                                             avg[sym] = 0.0
                                             trail_hi[sym] = 0.0
+                                            ladder_layers_plan[sym] = 0
+                                        else:
+                                            current_layers = sum(1 for threshold in cumulative_shares if pos[sym] >= threshold)
+                                            ladder_layers_plan[sym] = max(ladder_layers_plan[sym], current_layers)
 
                         # BREAKEVEN TRIM (optional): if price >= avg, trim a fraction
                         if pos[sym]>0 and avg[sym]>0 and sell_momentum_ok:
@@ -595,7 +607,7 @@ def run_live():
                                     rpnls[sym]+=rp; write_fill('SELL', sym, filled, px, 'breakeven_trim', rp)
                                     pos[sym] = max(0, pos[sym]-filled)
                                     if pos[sym]==0:
-                                        avg[sym]=0.0; trail_hi[sym]=0.0
+                                        avg[sym]=0.0; trail_hi[sym]=0.0; ladder_layers_plan[sym]=0
 
                         # HARD STOP
                         if pos[sym]>0 and avg[sym]>0 and last <= avg[sym]*(1 - HARD_STOP_PCT/100.0):
@@ -606,7 +618,7 @@ def run_live():
                                 rpnls[sym]+=rp; write_fill('SELL', sym, filled, px, 'live_stop', rp)
                                 pos[sym]=max(0,pos[sym]-filled)
                                 if pos[sym]==0:
-                                    avg[sym]=0.0; trail_hi[sym]=0.0
+                                    avg[sym]=0.0; trail_hi[sym]=0.0; ladder_layers_plan[sym]=0
 
                         # TRAIL
                         if pos[sym]>0:
@@ -620,7 +632,7 @@ def run_live():
                                     rpnls[sym]+=rp; write_fill('SELL', sym, filled, px, 'live_trail', rp)
                                     pos[sym]=max(0,pos[sym]-filled)
                                     if pos[sym]==0:
-                                        avg[sym]=0.0; trail_hi[sym]=0.0
+                                        avg[sym]=0.0; trail_hi[sym]=0.0; ladder_layers_plan[sym]=0
 
                         # HUD / logging snapshot
                         u = (last - avg[sym]) * pos[sym] if pos[sym] > 0 and avg[sym] > 0 else 0.0
