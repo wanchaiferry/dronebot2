@@ -1,7 +1,7 @@
 """Pre-session anchor preview tool.
 
-Connects to IB, pulls the previous session's minute bars for each configured
-symbol, and prints the AM and PM blended anchors plus ladder levels so you can
+Connects to IB, pulls the previous sessions' minute bars for each configured
+symbol, blends the last five days into weighted AM/PM anchors, and prints ladder levels so you can
 size clips ahead of the upcoming open.
 """
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import os
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from ib_insync import IB
 
@@ -34,6 +34,9 @@ from dronebot import (
 
 # Use a separate client ID so we do not interfere with the live bot.
 ANCHORBOT_CLIENT_ID = int(os.getenv("ANCHORBOT_CLIENT_ID", str(CLIENT_ID + 900)))
+
+ANCHOR_LOOKBACK_DAYS = 5
+ANCHOR_WEIGHTS: Sequence[int] = tuple(range(ANCHOR_LOOKBACK_DAYS, 0, -1))
 
 
 def log(msg: str) -> None:
@@ -85,6 +88,15 @@ def previous_trading_day(day: dt.date) -> dt.date:
     return prev
 
 
+def previous_trading_days(day: dt.date, count: int) -> List[dt.date]:
+    days: List[dt.date] = []
+    current = day
+    for _ in range(max(count, 0)):
+        current = previous_trading_day(current)
+        days.append(current)
+    return days
+
+
 def bars_in_window(bars: List[object], start: dt.time, end: dt.time) -> List[object]:
     def eastern_time(bar) -> dt.time:
         return dt.datetime.fromtimestamp(bar.date.timestamp(), TZ).time()
@@ -92,17 +104,13 @@ def bars_in_window(bars: List[object], start: dt.time, end: dt.time) -> List[obj
     return [bar for bar in bars if start <= eastern_time(bar) < end]
 
 
-def anchor_for_window(
+def single_day_anchor(
     date: dt.date,
     window_bars: List[object],
     window_end: dt.time,
-    buy_pct: float,
-    sell_pct: float,
-) -> Tuple[Optional[float], List[Optional[float]], List[Optional[float]]]:
+) -> Optional[float]:
     if not window_bars:
-        return None, level_grid(None, buy_pct, BUY_LADDER_MULTS, "down"), level_grid(
-            None, sell_pct, SELL_LADDER_MULTS, "up"
-        )
+        return None
 
     feats = anchors_from_bars(window_bars)
     last_close = getattr(window_bars[-1], "close", None)
@@ -110,10 +118,33 @@ def anchor_for_window(
     anchor_time = dt.datetime.combine(date, window_end) - dt.timedelta(minutes=1)
     anchor_time = anchor_time.replace(tzinfo=TZ)
     ref = blended_ref(anchor_time, feats, fallback) if (feats or fallback) else fallback
+    return ref if ref is not None else fallback
 
-    buy_levels = level_grid(ref, buy_pct, BUY_LADDER_MULTS, "down")
-    sell_levels = level_grid(ref, sell_pct, SELL_LADDER_MULTS, "up")
-    return ref, buy_levels, sell_levels
+
+def anchor_for_window(
+    daily_bars: Sequence[Tuple[dt.date, List[object]]],
+    window_start: dt.time,
+    window_end: dt.time,
+    buy_pct: float,
+    sell_pct: float,
+) -> Tuple[Optional[float], List[Optional[float]], List[Optional[float]]]:
+    anchors: List[Tuple[float, int]] = []
+    for weight, (date, bars) in zip(ANCHOR_WEIGHTS, daily_bars):
+        window_bars = bars_in_window(bars, window_start, window_end)
+        ref = single_day_anchor(date, window_bars, window_end)
+        if ref is not None:
+            anchors.append((ref, weight))
+
+    if anchors:
+        numerator = sum(ref * weight for ref, weight in anchors)
+        denominator = sum(weight for _, weight in anchors)
+        blended = numerator / denominator if denominator else None
+    else:
+        blended = None
+
+    buy_levels = level_grid(blended, buy_pct, BUY_LADDER_MULTS, "down")
+    sell_levels = level_grid(blended, sell_pct, SELL_LADDER_MULTS, "up")
+    return blended, buy_levels, sell_levels
 
 
 def run(ymd: Optional[str], targets_path: str) -> None:
@@ -123,10 +154,18 @@ def run(ymd: Optional[str], targets_path: str) -> None:
         return
 
     session_date = dt.datetime.strptime(ymd, "%Y-%m-%d").date() if ymd else eastern_today()
-    prev_date = previous_trading_day(session_date)
+    lookback_dates = previous_trading_days(session_date, ANCHOR_LOOKBACK_DAYS)
+    if not lookback_dates:
+        log("Unable to determine lookback trading days; nothing to do.")
+        return
+
     log(
-        "Fetching AM/PM anchors for %d symbols using %s session data..."
-        % (len(targets), prev_date.isoformat())
+        "Fetching AM/PM anchors for %d symbols using %s through %s session data..."
+        % (
+            len(targets),
+            lookback_dates[-1].isoformat(),
+            lookback_dates[0].isoformat(),
+        )
     )
 
     ib = IB()
@@ -141,13 +180,17 @@ def run(ymd: Optional[str], targets_path: str) -> None:
 
     for sym in sorted(targets):
         rec = targets[sym]
-        try:
-            _contract, bars = fetch_today_minute_bars(ib, sym, prev_date.strftime("%Y-%m-%d"))
-        except Exception as exc:
-            log(f"{sym}: error fetching bars: {exc}")
-            continue
+        daily_bars: List[Tuple[dt.date, List[object]]] = []
+        for date in lookback_dates:
+            try:
+                _contract, bars = fetch_today_minute_bars(ib, sym, date.strftime("%Y-%m-%d"))
+            except Exception as exc:
+                log(f"{sym}: error fetching bars for {date.isoformat()}: {exc}")
+                bars = []
+            daily_bars.append((date, bars))
 
-        last = bars[-1].close if bars else None
+        most_recent_bars = next((bars for _date, bars in daily_bars if bars), [])
+        last = most_recent_bars[-1].close if most_recent_bars else None
         buy_pct = max(0.1, float(rec.get("buy", 2.0)))
         sell_pct = max(0.1, float(rec.get("sell", 1.5)))
         clip_usd = resolve_clip_usd(sym, last, rec, targets)
@@ -155,9 +198,8 @@ def run(ymd: Optional[str], targets_path: str) -> None:
 
         window_rows = {}
         for label, start, end in windows:
-            window_bars = bars_in_window(bars, start, end)
             ref, buy_levels, sell_levels = anchor_for_window(
-                prev_date, window_bars, end, buy_pct, sell_pct
+                daily_bars, start, end, buy_pct, sell_pct
             )
             window_rows[label] = {
                 "anchor": ref,
