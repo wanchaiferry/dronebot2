@@ -21,6 +21,7 @@ from dronebot import (
     TARGETS_TXT,
     BUY_LADDER_MULTS,
     SELL_LADDER_MULTS,
+    SPREAD_CLASS_MULTS,
     AM_START,
     AM_END,
     PM_START,
@@ -191,8 +192,16 @@ def run(ymd: Optional[str], targets_path: str) -> None:
 
         most_recent_bars = next((bars for _date, bars in daily_bars if bars), [])
         last = most_recent_bars[-1].close if most_recent_bars else None
-        buy_pct = max(0.1, float(rec.get("buy", 2.0)))
-        sell_pct = max(0.1, float(rec.get("sell", 1.5)))
+        classification = str(rec.get("class", "risky")).lower()
+        spread_class_mult = SPREAD_CLASS_MULTS.get(
+            classification, SPREAD_CLASS_MULTS["risky"]
+        )
+        base_buy_pct = max(0.1, float(rec.get("buy", 2.0)))
+        base_sell_pct = max(0.1, float(rec.get("sell", 1.5)))
+        # The live bot also multiplies by spread_class_mult (5× risky / 3× safe),
+        # so these preview anchors should match the in-session ladder widths.
+        buy_pct = base_buy_pct * spread_class_mult
+        sell_pct = base_sell_pct * spread_class_mult
         clip_usd = resolve_clip_usd(sym, last, rec, targets)
         shares = int(round((clip_usd or 0) / last)) if clip_usd and last else None
 
