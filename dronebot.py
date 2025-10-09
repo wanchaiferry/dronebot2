@@ -2,7 +2,7 @@
 from __future__ import annotations
 import os, csv, math, time, traceback
 import datetime as dt
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 from collections import defaultdict, deque
 from ib_insync import IB, Stock, Contract, LimitOrder, BarData, Ticker
 
@@ -44,6 +44,92 @@ BUY_LADDER_MULTS  = [0.75, 1.0, 1.25]   # multipliers on buy% to show L1/L2/L3 b
 SELL_LADDER_MULTS = [0.75, 1.0, 1.25]   # multipliers on sell% to show U1/U2/U3 above ref
 SPREAD_CLASS_MULTS = {'risky': 5.0, 'safe': 3.0}
 BUY_RUNG_CLIP_MULTS  = [1.0, 1.6, 2.3]   # clip scaling for successive ladder entries
+
+# Identify the ladder index that represents the core anchor (L2) so we can
+# stretch the surrounding HUD levels without shifting the trigger itself.
+def _anchor_index(mults: Sequence[float]) -> int:
+    if not mults:
+        return 0
+    try:
+        return mults.index(1.0)
+    except ValueError:
+        return min(range(len(mults)), key=lambda i: abs(mults[i] - 1.0))
+
+
+BUY_LADDER_ANCHOR_IDX = _anchor_index(BUY_LADDER_MULTS)
+SELL_LADDER_ANCHOR_IDX = _anchor_index(SELL_LADDER_MULTS)
+
+
+def widen_levels_for_display(
+    ref: Optional[float],
+    levels: Sequence[Optional[float]],
+    direction: str,
+    spread_mult: float,
+    anchor_idx: int,
+    clamp_eps: float = 1e-6,
+) -> List[Optional[float]]:
+    """Return a widened copy of the ladder for HUD/logging purposes.
+
+    The anchor rung (L2) is pushed farther from the blended reference by
+    ``ANCHOR_DISTANCE_MULT`` (display-only) while the surrounding levels are
+    stretched by ``spread_mult`` (5× risky / 3× safe) relative to the original
+    anchor spacing. For buys we prevent levels from crossing above the blended
+    reference, and for sells we avoid dropping below it.
+
+    Example: assume the base ladder has L2 sitting 3% below the reference,
+    L1 is 2.25% below, and L3 is 3.75% below. With ``spread_mult`` == 5 the
+    display anchor shifts to 6% below the reference (double the base distance),
+    while L1 and L3 are widened so that their original offsets from L2 are
+    multiplied 5× around the new anchor. In other words, we multiply the
+    *distance from L2* for the outer rungs after moving L2 itself farther from
+    the reference.
+    """
+
+    base_levels = [lvl if lvl is None else float(lvl) for lvl in levels]
+    widened = list(base_levels)
+    if (
+        ref is None
+        or spread_mult <= 1.0
+        or not widened
+        or anchor_idx < 0
+        or anchor_idx >= len(widened)
+    ):
+        return widened
+
+    anchor_level = base_levels[anchor_idx]
+    if anchor_level is None:
+        return widened
+
+    if ref is not None and ANCHOR_DISTANCE_MULT > 1.0:
+        anchor_shift = (anchor_level - ref) * ANCHOR_DISTANCE_MULT
+        anchor_target = ref + anchor_shift
+
+        if direction == 'down' and anchor_target > ref and ref > 0:
+            anchor_target = ref * (1.0 - clamp_eps)
+        elif direction == 'up' and anchor_target < ref and ref > 0:
+            anchor_target = ref * (1.0 + clamp_eps)
+
+        widened[anchor_idx] = anchor_target
+        anchor_level = anchor_target
+
+    for idx, level in enumerate(widened):
+        base_level = base_levels[idx]
+        if base_level is None or idx == anchor_idx:
+            continue
+
+        diff = base_level - base_levels[anchor_idx]
+        target = anchor_level + diff * spread_mult
+
+        if direction == 'down' and diff > 0 and ref > 0:
+            cap = ref * (1.0 - clamp_eps)
+            target = min(cap, target)
+        elif direction == 'up' and diff < 0 and ref > 0:
+            floor = ref * (1.0 + clamp_eps)
+            target = max(floor, target)
+
+        widened[idx] = target
+
+    return widened
 
 # Dynamic clip controls (per trade $ sizing), still overridable per-symbol via targets.txt clip=...
 SHOTS_PER_TICKER   = int(os.getenv('SHOTS_PER_TICKER', '12'))
@@ -526,9 +612,29 @@ def run_live():
                         buy_pct = base_buy_pct * spread_class_mult * buy_mult
                         sell_pct = base_sell_pct * spread_class_mult * sell_mult
 
-                        # Ladder levels for HUD (and we use the middle level for core triggers)
-                        buy_levels  = [ref * (1.0 - (buy_pct * m) / 100.0) for m in BUY_LADDER_MULTS]
-                        sell_levels = [ref * (1.0 + (sell_pct * m) / 100.0) for m in SELL_LADDER_MULTS]
+                        # Ladder levels for trading logic (L2 remains the live trigger)
+                        buy_levels = [
+                            ref * (1.0 - (buy_pct * m) / 100.0) for m in BUY_LADDER_MULTS
+                        ]
+                        sell_levels = [
+                            ref * (1.0 + (sell_pct * m) / 100.0) for m in SELL_LADDER_MULTS
+                        ]
+
+                        # HUD/logging versions stretch L1/L3 around the same L2 anchor
+                        display_buy_levels = widen_levels_for_display(
+                            ref,
+                            buy_levels,
+                            'down',
+                            spread_class_mult,
+                            BUY_LADDER_ANCHOR_IDX,
+                        )
+                        display_sell_levels = widen_levels_for_display(
+                            ref,
+                            sell_levels,
+                            'up',
+                            spread_class_mult,
+                            SELL_LADDER_ANCHOR_IDX,
+                        )
 
                         clip_override = rec.get('clip', None)
                         clip_usd = (
@@ -640,8 +746,8 @@ def run_live():
 
                         # HUD / logging snapshot
                         u = (last - avg[sym]) * pos[sym] if pos[sym] > 0 and avg[sym] > 0 else 0.0
-                        bl = ','.join(f"{x:.2f}" for x in buy_levels)
-                        sl = ','.join(f"{x:.2f}" for x in sell_levels)
+                        bl = ','.join(f"{x:.2f}" for x in display_buy_levels)
+                        sl = ','.join(f"{x:.2f}" for x in display_sell_levels)
                         pnl_rows.append([
                             now.isoformat(timespec='seconds'),
                             sym,

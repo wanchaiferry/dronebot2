@@ -20,6 +20,7 @@ from dronebot import (
     CLIENT_ID,
     TARGETS_TXT,
     BUY_LADDER_MULTS,
+    BUY_LADDER_ANCHOR_IDX,
     SELL_LADDER_MULTS,
     SPREAD_CLASS_MULTS,
     AM_START,
@@ -31,6 +32,7 @@ from dronebot import (
     anchors_from_bars,
     blended_ref,
     dynamic_clip_usd,
+    widen_levels_for_display,
 )
 
 # Use a separate client ID so we do not interfere with the live bot.
@@ -128,6 +130,7 @@ def anchor_for_window(
     window_end: dt.time,
     buy_pct: float,
     sell_pct: float,
+    spread_class_mult: float,
 ) -> Tuple[Optional[float], List[Optional[float]], List[Optional[float]]]:
     anchors: List[Tuple[float, int]] = []
     for weight, (date, bars) in zip(ANCHOR_WEIGHTS, daily_bars):
@@ -143,8 +146,27 @@ def anchor_for_window(
     else:
         blended = None
 
-    buy_levels = level_grid(blended, buy_pct, BUY_LADDER_MULTS, "down")
-    sell_levels = level_grid(blended, sell_pct, SELL_LADDER_MULTS, "up")
+    base_buy_levels = level_grid(blended, buy_pct, BUY_LADDER_MULTS, "down")
+    base_sell_levels = level_grid(blended, sell_pct, SELL_LADDER_MULTS, "up")
+
+    # Move the midpoint (L2) farther from the reference for display (doubling
+    # its base distance) while stretching the surrounding rungs so their
+    # distance from the original anchor spacing is multiplied by the 5×/3×
+    # risk-class factor.
+    buy_levels = widen_levels_for_display(
+        blended,
+        base_buy_levels,
+        "down",
+        spread_class_mult,
+        BUY_LADDER_ANCHOR_IDX,
+    )
+    sell_levels = widen_levels_for_display(
+        blended,
+        base_sell_levels,
+        "up",
+        spread_class_mult,
+        SELL_LADDER_ANCHOR_IDX,
+    )
     return blended, buy_levels, sell_levels
 
 
@@ -208,7 +230,7 @@ def run(ymd: Optional[str], targets_path: str) -> None:
         window_rows = {}
         for label, start, end in windows:
             ref, buy_levels, sell_levels = anchor_for_window(
-                daily_bars, start, end, buy_pct, sell_pct
+                daily_bars, start, end, buy_pct, sell_pct, spread_class_mult
             )
             window_rows[label] = {
                 "anchor": ref,
