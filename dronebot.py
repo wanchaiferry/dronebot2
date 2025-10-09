@@ -1,6 +1,6 @@
 # dronebot.py — LIVE ONLY (ladder HUD + blended reference + VWV) with crash-proof loop & reconnect
 from __future__ import annotations
-import os, csv, math, time, traceback
+import os, csv, math, time, traceback, json
 import datetime as dt
 from typing import Dict, List, Optional, Sequence, Tuple
 from collections import defaultdict, deque
@@ -21,6 +21,7 @@ FILLS_CSV = 'fills_live.csv'
 PNL_CSV   = 'pnl_summary_live.csv'
 TARGETS_TXT = 'targets.txt'
 ERR_LOG   = 'bot_errors.log'
+DASHBOARD_SNAPSHOT_PATH = os.getenv('DASHBOARD_SNAPSHOT_PATH', 'dashboard_snapshot.json')
 
 # ---------- Exec & Risk ----------
 SPREAD_LIMIT_RISKY = 180.0  # bps
@@ -184,6 +185,34 @@ def write_pnl_rows(rows: List[List]):
     with open(PNL_CSV,'a',newline='') as f:
         w=csv.writer(f)
         for r in rows: w.writerow(r)
+
+
+def _round_or_none(value: Optional[float], digits: int) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return round(float(value), digits)
+    except Exception:
+        return None
+
+
+def write_dashboard_snapshot(records: List[dict], path: str = DASHBOARD_SNAPSHOT_PATH):
+    payload = {
+        'updated': now_eastern().isoformat(timespec='seconds'),
+        'symbols': records,
+    }
+    tmp_path = path + '.tmp'
+    try:
+        with open(tmp_path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, path)
+    except Exception as exc:
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        log_error(f'dashboard snapshot write failed: {exc}')
 
 # ---------- Config / Targets ----------
 def read_targets(path=TARGETS_TXT) -> Dict[str, dict]:
@@ -600,6 +629,7 @@ def run_live():
                     continue
 
                 pnl_rows=[]
+                snapshot_records: List[dict] = []
                 for sym, rec in targets.items():
                     try:
                         c = contracts[sym]
@@ -733,6 +763,7 @@ def run_live():
 
                         desired_buy_layers = sum(1 for lvl in buy_levels if last <= lvl)
                         desired_buy_layers = min(desired_buy_layers, len(ladder_shares))
+                        sell_levels_hit = sum(1 for lvl in sell_levels if last >= lvl)
 
                         # ENTRY (never create short; pos>=0 is enforced by sync)
                         cooldown_ready = buy_cooldown_ready
@@ -797,7 +828,7 @@ def run_live():
 
                         # LADDER TRIMS (reduce layers as price rallies)
                         if pos[sym] > 0 and sell_momentum_ok:
-                            levels_hit = sum(1 for lvl in sell_levels if last >= lvl)
+                            levels_hit = sell_levels_hit
                             target_layers_after = max(0, active_layers - levels_hit)
                             if target_layers_after < active_layers:
                                 target_shares = (
@@ -861,6 +892,29 @@ def run_live():
 
                         # HUD / logging snapshot
                         u = (last - avg[sym]) * pos[sym] if pos[sym] > 0 and avg[sym] > 0 else 0.0
+                        snapshot_records.append({
+                            'symbol': sym,
+                            'last': _round_or_none(last, 4),
+                            'reference': _round_or_none(ref, 4),
+                            'vwv_z': _round_or_none(z, 2),
+                            'velocity_bps': _round_or_none(vel, 1),
+                            'buy_ready': bool(
+                                cooldown_ready
+                                and buy_momentum_ok
+                                and desired_buy_layers > active_layers
+                            ),
+                            'velocity_ready': bool(velocity_ready and buy_momentum_ok),
+                            'velocity_active': bool(velocity_active),
+                            'sell_ready': bool(pos[sym] > 0 and sell_levels_hit > 0 and sell_momentum_ok),
+                            'buy_layers_active': active_layers,
+                            'buy_layers_target': desired_buy_layers,
+                            'sell_layers_hit': sell_levels_hit,
+                            'position': pos[sym],
+                            'avg_price': _round_or_none(avg[sym], 4),
+                            'clip_usd': _round_or_none(clip_usd, 2),
+                            'unrealized': _round_or_none(u, 2),
+                            'cooldown_ready': bool(cooldown_ready),
+                        })
                         bl = ','.join(f"{x:.2f}" for x in display_buy_levels)
                         sl = ','.join(f"{x:.2f}" for x in display_sell_levels)
                         pnl_rows.append([
@@ -882,6 +936,7 @@ def run_live():
                     except Exception as e:
                         log_error(f"loop symbol {sym} error: {e}", e)
 
+                write_dashboard_snapshot(snapshot_records)
                 if pnl_rows:
                     write_pnl_rows(pnl_rows)
 
