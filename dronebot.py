@@ -299,8 +299,12 @@ def place_ioc_buy(
 
     o = LimitOrder('BUY', qty, round(lmt, 4), tif='IOC')
     tr = ib.placeOrder(c, o)
-    ib.sleep(0.25)
-    fills = [f for f in ib.fills() if f.execution.orderId == tr.order.orderId]
+    # Wait briefly for IB to process the IOC and populate fills on the Trade object.
+    for _ in range(10):
+        if tr.isDone():
+            break
+        ib.waitOnUpdate(timeout=0.2)
+    fills = list(tr.fills)
     return _avg_price_and_qty(fills)
 
 
@@ -326,8 +330,11 @@ def place_ioc_sell(
 
     o = LimitOrder('SELL', qty, round(lmt, 4), tif='IOC')
     tr = ib.placeOrder(c, o)
-    ib.sleep(0.25)
-    fills = [f for f in ib.fills() if f.execution.orderId == tr.order.orderId]
+    for _ in range(10):
+        if tr.isDone():
+            break
+        ib.waitOnUpdate(timeout=0.2)
+    fills = list(tr.fills)
     return _avg_price_and_qty(fills)
 
 # ---------- Core loop wrapped with resilience ----------
