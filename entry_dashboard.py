@@ -84,6 +84,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       background: rgba(15,118,110,0.2);
       color: #5eead4;
     }
+    .cooldown-true {
+      background: linear-gradient(135deg, #fbbf24, #f59e0b);
+      color: #451a03;
+    }
+    .cooldown-false {
+      background: rgba(217,119,6,0.25);
+      color: #fef3c7;
+    }
     .sell-true {
       background: linear-gradient(135deg, #f87171, #ef4444);
       color: #450a0a;
@@ -127,6 +135,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <th>Symbol</th>
           <th>Last</th>
           <th>Reference</th>
+          <th>Average</th>
           <th>VWV Z</th>
           <th>Velocity</th>
           <th>Layers</th>
@@ -162,6 +171,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         ['symbol', symbol.symbol],
         ['last', formatNumber(symbol.last, 2)],
         ['reference', formatNumber(symbol.reference, 2)],
+        ['avg_price', formatNumber(symbol.avg_price, 2)],
         ['vwv_z', formatNumber(symbol.vwv_z, 2)],
         ['velocity_bps', formatNumber(symbol.velocity_bps, 1)],
         ['layers', formatLayers(symbol.buy_layers_active, symbol.buy_layers_target, symbol.sell_layers_hit)],
@@ -184,6 +194,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       entryBadge.classList.add('badge', symbol.buy_ready ? 'entry-true' : 'entry-false');
       entryBadge.textContent = symbol.buy_ready ? 'Entry Ready' : 'Entry Waiting';
       statusTd.appendChild(entryBadge);
+
+      const cooldownBadge = document.createElement('span');
+      cooldownBadge.classList.add('badge', symbol.cooldown_ready ? 'cooldown-true' : 'cooldown-false');
+      cooldownBadge.textContent = symbol.cooldown_ready ? 'Cooldown Clear' : 'Cooling Down';
+      statusTd.appendChild(cooldownBadge);
 
       const velocityBadge = document.createElement('span');
       velocityBadge.classList.add('badge', symbol.velocity_active || symbol.velocity_ready ? 'velocity-true' : 'velocity-false');
