@@ -3,6 +3,11 @@
 ## Overview
 This repository contains a single Python trading bot that connects to Interactive Brokers (IB) and executes a live mean-reversion strategy focused on drone and defense-related tickers. The bot continuously evaluates streamed market data, enforces strict risk controls, and records fills and PnL snapshots for later review.
 
+## Prerequisites
+* Install a supported Python 3 interpreter (3.10+ recommended). On Windows download the official installer from [python.org](https://www.python.org/downloads/windows/) and ensure that the “Add python.exe to PATH” option is checked. After installation confirm availability with `py --version` or `python --version` from a new Command Prompt.
+* If the `python` alias still opens the Microsoft Store, use `py` when running the helper scripts (`py pre_session_anchors.py`) or disable the Windows Store alias under *Settings → Apps → Advanced app settings → App execution aliases*.
+* With Python in place, you can run `init_venv.bat` once to create the virtual environment and install dependencies before launching the utilities or live bot.
+
 ## Core Loop
 * Connects to IB using configurable host, port, and client ID environment variables before entering a resilient reconnect loop. The bot restarts automatically on disconnects and logs any errors to `bot_errors.log` while sleeping briefly between retries.
 * Streams market data for tickers defined in `targets.txt`, deriving blended reference prices from pre-market, initial balance, and regular trading hours median prices obtained via historical bar downloads.
@@ -27,4 +32,5 @@ This repository contains a single Python trading bot that connects to Interactiv
 ## Utilities
 * `init_venv.bat` bootstraps a Windows virtual environment and installs dependencies (`ib_insync`, `pandas`, `numpy`, `python-dateutil`).
 * `run_live.bat` activates the environment, sets useful defaults for key environment variables, launches `dronebot.py`, and displays the tail of `bot_errors.log` if the bot exits unexpectedly.
+* `run_pre_session_anchors.bat` activates the environment and launches `pre_session_anchors.py` (passing through any arguments) before pausing so you can review the printed table.
 * `pre_session_anchors.py` can be run before the opening bell to print the previous session's AM and PM blended anchors, ladder levels, and clip sizing for each symbol configured in `targets.txt`. Use `python pre_session_anchors.py` (optionally `--date YYYY-MM-DD`) after connecting TWS or IB Gateway to review plan levels ahead of the session.
