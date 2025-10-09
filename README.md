@@ -27,3 +27,4 @@ This repository contains a single Python trading bot that connects to Interactiv
 ## Utilities
 * `init_venv.bat` bootstraps a Windows virtual environment and installs dependencies (`ib_insync`, `pandas`, `numpy`, `python-dateutil`).
 * `run_live.bat` activates the environment, sets useful defaults for key environment variables, launches `dronebot.py`, and displays the tail of `bot_errors.log` if the bot exits unexpectedly.
+* `pre_session_anchors.py` can be run before the opening bell to print the previous session's AM and PM blended anchors, ladder levels, and clip sizing for each symbol configured in `targets.txt`. Use `python pre_session_anchors.py` (optionally `--date YYYY-MM-DD`) after connecting TWS or IB Gateway to review plan levels ahead of the session.
