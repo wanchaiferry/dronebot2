@@ -131,6 +131,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <th>Velocity</th>
           <th>Layers</th>
           <th>Position</th>
+          <th>Avg Cost</th>
           <th>Clip $</th>
           <th>Unrealized</th>
           <th>Signals</th>
@@ -151,8 +152,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       return Number(value).toFixed(fractionDigits);
     }
 
+    function toNumber(value, fallback = 0) {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : fallback;
+    }
+
     function formatLayers(active, target, sellHit) {
-      return `${active}/${target} ↓${sellHit}`;
+      const layersActive = toNumber(active, 0);
+      const layersTarget = toNumber(target, 0);
+      const sells = toNumber(sellHit, 0);
+      return `${layersActive}/${layersTarget} ↑${sells}`;
     }
 
     function buildRow(symbol) {
@@ -165,7 +174,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         ['vwv_z', formatNumber(symbol.vwv_z, 2)],
         ['velocity_bps', formatNumber(symbol.velocity_bps, 1)],
         ['layers', formatLayers(symbol.buy_layers_active, symbol.buy_layers_target, symbol.sell_layers_hit)],
-        ['position', symbol.position ?? 0],
+        ['position', toNumber(symbol.position, 0)],
+        ['avg_price', formatNumber(symbol.avg_price, 2)],
         ['clip_usd', formatNumber(symbol.clip_usd, 0)],
         ['unrealized', formatNumber(symbol.unrealized, 2)],
       ];
