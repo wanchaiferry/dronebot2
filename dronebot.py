@@ -44,15 +44,7 @@ ANCHOR_DISTANCE_MULT = float(os.getenv("ANCHOR_DISTANCE_MULT", "2.0"))
 BUY_LADDER_MULTS  = [0.75, 0.85, 0.92, 1.0, 1.08, 1.15, 1.25]   # multipliers on buy% ladder
 SELL_LADDER_MULTS = [0.75, 0.85, 0.92, 1.0, 1.08, 1.15, 1.25]   # multipliers on sell% ladder
 SPREAD_CLASS_MULTS = {'risky': 5.0, 'safe': 3.0}
-BUY_RUNG_CLIP_MULTS  = [
-    1.0,
-    1.2,
-    1.4,
-    1.6,
-    1.8333333333333333,
-    2.066666666666667,
-    2.3,
-]   # clip scaling for successive ladder entries (thirds bridge the original 3-rung plan)
+BUY_RUNG_CLIP_MULTS  = [1.0, 1.2, 1.4, 1.6, 1.85, 2.1, 2.3]   # clip scaling for successive ladder entries
 
 # Identify the ladder index that represents the core anchor (middle rung) so we can
 # stretch the surrounding HUD levels without shifting the trigger itself.
