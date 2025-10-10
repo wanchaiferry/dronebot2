@@ -6,6 +6,8 @@ set "SCRIPT_DIR=%~dp0"
 set "VENV_DIR=%SCRIPT_DIR%.venv"
 set "ACTIVATE_BAT=%VENV_DIR%\Scripts\activate.bat"
 set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
+rem Shared loopback default so dashboards and IB prompts stay aligned.
+set "DEFAULT_LOOPBACK_HOST=127.0.0.1"
 
 call :ensure_venv
 if errorlevel 1 goto :finalize
@@ -40,7 +42,7 @@ goto :menu
 
 :launch_live
 setlocal
-set "DEFAULT_IB_HOST=127.0.0.1"
+  set "DEFAULT_IB_HOST=%DEFAULT_LOOPBACK_HOST%"
 set "DEFAULT_IB_PORT=7497"
 set "DEFAULT_IB_CID=21"
 set "DEFAULT_EQUITY=150000"
@@ -79,7 +81,7 @@ exit /b 0
 
 :launch_dashboard
 setlocal
-set "DEFAULT_DASH_HOST=0.0.0.0"
+  set "DEFAULT_DASH_HOST=%DEFAULT_LOOPBACK_HOST%"
 set "DEFAULT_DASH_PORT=8765"
 set "DEFAULT_SNAPSHOT=dashboard_snapshot.json"
 
