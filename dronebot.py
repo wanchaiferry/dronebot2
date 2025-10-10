@@ -4,6 +4,8 @@ import os, csv, math, time, traceback, json
 import datetime as dt
 from typing import Dict, List, Optional, Sequence, Tuple
 from collections import defaultdict, deque
+import socket
+from urllib.parse import urlparse
 from ib_insync import IB, Stock, Contract, LimitOrder, BarData, Ticker
 
 # ---------- Time / Sessions ----------
@@ -12,8 +14,66 @@ AM_START = dt.time(9,30); AM_END = dt.time(11,0)
 PM_START = dt.time(14,0); PM_END = dt.time(16,0)
 
 # ---------- IB ----------
-HOST = os.getenv('IB_HOST', '127.0.0.1')
-PORT = int(os.getenv('IB_PORT', '7497'))
+def _normalize_ib_endpoint() -> Tuple[str, int]:
+    """Return a sanitized (host, port) tuple for connecting to IBKR.
+
+    Users frequently provide values such as ``localhost:4002`` or
+    ``http://127.0.0.1`` via environment variables or BAT prompts.  The
+    standard ``IB.connect`` call expects a bare host string, so we strip any
+    scheme prefixes, tolerate embedded ``host:port`` pairs, and validate the
+    hostname before returning it.  If the hostname cannot be resolved we fall
+    back to ``127.0.0.1`` so that the bot keeps trying against the local
+    gateway instead of crashing immediately.
+    """
+
+    default_host = '127.0.0.1'
+    default_port = 7497
+
+    raw_host = os.getenv('IB_HOST', '').strip()
+    raw_port = os.getenv('IB_PORT', '').strip()
+
+    host = default_host
+    port = default_port
+
+    if raw_host:
+        parsed = urlparse(raw_host if '://' in raw_host else f'//{raw_host}')
+        if parsed.hostname:
+            host = parsed.hostname
+        elif parsed.path:
+            host = parsed.path.lstrip('/') or host
+        try:
+            parsed_port = parsed.port
+        except ValueError:
+            print(
+                f"Invalid port in IB_HOST '{raw_host}'. Using {port} instead.",
+                flush=True,
+            )
+        else:
+            if parsed_port is not None:
+                port = parsed_port
+
+    if raw_port:
+        try:
+            port = int(raw_port)
+        except ValueError:
+            print(f"Invalid IB_PORT '{raw_port}'. Using {port} instead.", flush=True)
+
+    if not host:
+        host = default_host
+
+    try:
+        socket.getaddrinfo(host, port)
+    except OSError:
+        print(
+            f"IB host '{host}' could not be resolved. Falling back to {default_host}.",
+            flush=True,
+        )
+        host = default_host
+
+    return host, port
+
+
+HOST, PORT = _normalize_ib_endpoint()
 CLIENT_ID = int(os.getenv('IB_CID', '21'))
 
 # ---------- Files ----------

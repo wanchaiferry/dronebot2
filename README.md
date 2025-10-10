@@ -27,7 +27,7 @@ This repository contains a single Python trading bot that connects to Interactiv
 * Sizes trades dynamically based on per-class equity allocations, per-ticker budgets, and inverse price weighting; fixed USD clips can be supplied per ticker in `targets.txt`.
 
 ## Configuration & Outputs
-* `targets.txt` configures ticker classes (`risky` / `safe`), percentage offsets for buys and trims, and optional clip overrides. Global allocations (class fractions and total live equity) can be adjusted via `@config` directives or environment variables.
+* `targets.txt` configures ticker classes (`risky` / `safe`), percentage offsets for buys and trims, and optional clip overrides. Global allocations (class fractions and total live equity) can be adjusted via `@config` directives or environment variables. The IB connection parameters (`IB_HOST`, `IB_PORT`, `IB_CID`) accept flexible inputs such as `localhost:4002` or `http://127.0.0.1`; the bot normalizes these into the host/port pair expected by the API and falls back to `127.0.0.1` if the provided hostname cannot be resolved.
 * Executed fills append to `fills_live.csv`, and a running PnL log is written to `pnl_summary_live.csv`. Fatal errors are captured in `bot_errors.log` for troubleshooting.
 
 ## Utilities
