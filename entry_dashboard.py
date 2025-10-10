@@ -385,6 +385,223 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       letter-spacing: 0.06em;
       text-transform: uppercase;
     }
+    .chart-cell {
+      min-width: 160px;
+      padding: 0 12px;
+    }
+    .chart-wrapper {
+      width: 100%;
+      height: 60px;
+    }
+    .chart-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    .chart-line {
+      fill: none;
+      stroke-width: 1.6;
+      vector-effect: non-scaling-stroke;
+      opacity: 0.9;
+    }
+    .chart-line.price {
+      stroke: #f8fafc;
+      opacity: 1;
+      stroke-width: 2;
+    }
+    .chart-line.buy {
+      stroke: #fca5a5;
+      stroke-dasharray: 4 2;
+    }
+    .chart-line.sell {
+      stroke: #86efac;
+      stroke-dasharray: 4 2;
+    }
+    .chart-band {
+      fill: rgba(148, 163, 184, 0.12);
+    }
+    .chart-marker {
+      fill: #f8fafc;
+      stroke: rgba(15, 23, 42, 0.6);
+      stroke-width: 1.2;
+    }
+    .velocity-cell {
+      border-radius: 8px;
+      padding: 8px 12px;
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: flex-end;
+      transition: background-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
+    }
+    .velocity-cell .velocity-main {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .velocity-cell .velocity-arrow {
+      font-size: 1.1rem;
+      line-height: 1;
+      letter-spacing: -0.02em;
+    }
+    .velocity-cell .velocity-status {
+      font-size: 0.68rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0.8;
+    }
+    .velocity-cell.positive {
+      box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.45);
+    }
+    .velocity-cell.negative {
+      box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.45);
+    }
+    .velocity-cell.neutral {
+      box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.35);
+      color: #cbd5f5;
+      background: rgba(148, 163, 184, 0.18);
+    }
+    .velocity-cell.active {
+      box-shadow: inset 0 0 0 1px rgba(248, 250, 252, 0.35), 0 8px 16px rgba(15, 23, 42, 0.35);
+    }
+    .velocity-cell.dim {
+      opacity: 0.75;
+    }
+    .ladder-wrapper {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 12px;
+      margin-top: 8px;
+      font-size: 0.72rem;
+    }
+    .ladder-meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 12px;
+      margin-top: 8px;
+      font-size: 0.72rem;
+    }
+    .ladder-next {
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: rgba(30, 41, 59, 0.65);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-variant-numeric: tabular-nums;
+    }
+    .ladder-next.buy {
+      background: rgba(248, 113, 113, 0.16);
+      border-color: rgba(248, 113, 113, 0.28);
+      color: #fee2e2;
+    }
+    .ladder-next.sell {
+      background: rgba(34, 197, 94, 0.16);
+      border-color: rgba(34, 197, 94, 0.28);
+      color: #dcfce7;
+    }
+    .ladder-next .label {
+      text-transform: uppercase;
+      font-size: 0.62rem;
+      letter-spacing: 0.08em;
+      color: #94a3b8;
+    }
+    .ladder-next.buy .label {
+      color: rgba(254, 226, 226, 0.85);
+    }
+    .ladder-next.sell .label {
+      color: rgba(220, 252, 231, 0.85);
+    }
+    .ladder-next .value {
+      font-weight: 600;
+      color: #e2e8f0;
+    }
+    .ladder-column {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .ladder-column .ladder-title {
+      text-transform: uppercase;
+      font-size: 0.62rem;
+      letter-spacing: 0.08em;
+      color: #94a3b8;
+    }
+    .ladder-rungs {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .ladder-empty {
+      font-size: 0.65rem;
+      color: #64748b;
+      padding: 4px 0;
+    }
+    .ladder-rung {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 6px;
+      align-items: baseline;
+      padding: 4px 6px;
+      border-radius: 6px;
+      background: rgba(30, 41, 59, 0.65);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      color: #e2e8f0;
+      font-variant-numeric: tabular-nums;
+    }
+    .ladder-rung.buy {
+      background: rgba(248, 113, 113, 0.18);
+      border-color: rgba(248, 113, 113, 0.28);
+      color: #fee2e2;
+    }
+    .ladder-rung.sell {
+      background: rgba(34, 197, 94, 0.14);
+      border-color: rgba(34, 197, 94, 0.24);
+      color: #dcfce7;
+    }
+    .ladder-rung.active {
+      box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.45), 0 6px 14px rgba(15, 23, 42, 0.35);
+      transform: translateY(-1px);
+    }
+    .ladder-rung .rung-index {
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      opacity: 0.8;
+    }
+    .ladder-rung .rung-price {
+      font-weight: 600;
+    }
+    .ladder-rung .rung-delta {
+      font-size: 0.65rem;
+      color: #cbd5f5;
+      justify-self: end;
+    }
+    .ladder-alert {
+      margin-top: 8px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: rgba(248, 113, 113, 0.18);
+      border: 1px solid rgba(248, 113, 113, 0.35);
+      color: #fecaca;
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .ladder-alert .label {
+      font-weight: 700;
+    }
+    .chart-cell.ladder-overlap {
+      box-shadow: inset 0 0 0 2px rgba(248, 113, 113, 0.25);
+      border-radius: 10px;
+    }
     .placeholder {
       padding: 32px;
       text-align: center;
@@ -408,6 +625,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <th>Reference</th>
           <th>Next Buy</th>
           <th>Next Sell</th>
+          <th>Price · Ladders</th>
           <th>Buy %</th>
           <th>Sell %</th>
           <th>VWV Z</th>
@@ -449,6 +667,167 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       return Number.isFinite(num) ? num : fallback;
     }
 
+    const chartState = new Map();
+    const CHART_MAX_POINTS = 160;
+    const CHART_WIDTH = 160;
+    const CHART_HEIGHT = 60;
+
+    function ensureChartState(symbol) {
+      if (!chartState.has(symbol)) {
+        chartState.set(symbol, {
+          points: [],
+          lastBuy: null,
+          lastSell: null,
+          svg: null,
+        });
+      }
+      return chartState.get(symbol);
+    }
+
+    function recordChartPoint(symbol) {
+      const key = symbol.symbol;
+      if (!key || key === '—') {
+        return;
+      }
+      const state = ensureChartState(key);
+      const now = Date.now();
+      const price = Number(symbol.last);
+      const buyLevel = Number(symbol.next_buy_level);
+      const sellLevel = Number(symbol.next_sell_level);
+
+      const point = {
+        timestamp: now,
+        price: Number.isFinite(price) ? price : null,
+        buy: null,
+        sell: null,
+      };
+
+      if (Number.isFinite(buyLevel)) {
+        state.lastBuy = buyLevel;
+        point.buy = buyLevel;
+      } else if (typeof state.lastBuy === 'number') {
+        point.buy = state.lastBuy;
+      }
+
+      if (Number.isFinite(sellLevel)) {
+        state.lastSell = sellLevel;
+        point.sell = sellLevel;
+      } else if (typeof state.lastSell === 'number') {
+        point.sell = state.lastSell;
+      }
+
+      if (point.price === null && point.buy === null && point.sell === null) {
+        return;
+      }
+
+      state.points.push(point);
+      if (state.points.length > CHART_MAX_POINTS) {
+        state.points.splice(0, state.points.length - CHART_MAX_POINTS);
+      }
+    }
+
+    function renderChart(symbol) {
+      const state = chartState.get(symbol);
+      if (!state || !state.svg) {
+        return;
+      }
+      const svg = state.svg;
+      const points = state.points;
+      if (!points.length) {
+        svg.innerHTML = '';
+        return;
+      }
+
+      let minValue = Number.POSITIVE_INFINITY;
+      let maxValue = Number.NEGATIVE_INFINITY;
+      for (const point of points) {
+        for (const key of ['price', 'buy', 'sell']) {
+          const value = point[key];
+          if (typeof value === 'number' && Number.isFinite(value)) {
+            if (value < minValue) minValue = value;
+            if (value > maxValue) maxValue = value;
+          }
+        }
+      }
+
+      if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
+        svg.innerHTML = '';
+        return;
+      }
+
+      if (minValue === maxValue) {
+        const delta = Math.max(0.5, Math.abs(minValue) * 0.005);
+        minValue -= delta;
+        maxValue += delta;
+      }
+
+      const span = Math.max(1, maxValue - minValue);
+      const startTs = points[0].timestamp;
+      const endTs = points[points.length - 1].timestamp;
+      const tsSpan = Math.max(1, endTs - startTs);
+
+      const buildPath = (key) => {
+        let d = '';
+        let penDown = false;
+        points.forEach((point) => {
+          const value = point[key];
+          if (typeof value === 'number' && Number.isFinite(value)) {
+            const x = ((point.timestamp - startTs) / tsSpan) * CHART_WIDTH;
+            const y = CHART_HEIGHT - ((value - minValue) / span) * CHART_HEIGHT;
+            if (!penDown) {
+              d += `M${x.toFixed(2)} ${y.toFixed(2)}`;
+              penDown = true;
+            } else {
+              d += ` L${x.toFixed(2)} ${y.toFixed(2)}`;
+            }
+          } else {
+            penDown = false;
+          }
+        });
+        return d;
+      };
+
+      const pricePath = buildPath('price');
+      const buyPath = buildPath('buy');
+      const sellPath = buildPath('sell');
+
+      svg.innerHTML = '';
+
+      const band = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      band.setAttribute('class', 'chart-band');
+      band.setAttribute('x', '0');
+      band.setAttribute('y', '0');
+      band.setAttribute('width', String(CHART_WIDTH));
+      band.setAttribute('height', String(CHART_HEIGHT));
+      svg.appendChild(band);
+
+      const appendPath = (pathData, cls) => {
+        if (!pathData) {
+          return;
+        }
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', pathData);
+        path.setAttribute('class', `chart-line ${cls}`);
+        svg.appendChild(path);
+      };
+
+      appendPath(buyPath, 'buy');
+      appendPath(sellPath, 'sell');
+      appendPath(pricePath, 'price');
+
+      const lastPoint = points[points.length - 1];
+      if (lastPoint && typeof lastPoint.price === 'number' && Number.isFinite(lastPoint.price)) {
+        const x = CHART_WIDTH;
+        const y = CHART_HEIGHT - ((lastPoint.price - minValue) / span) * CHART_HEIGHT;
+        const marker = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        marker.setAttribute('class', 'chart-marker');
+        marker.setAttribute('cx', x.toFixed(2));
+        marker.setAttribute('cy', y.toFixed(2));
+        marker.setAttribute('r', '2.6');
+        svg.appendChild(marker);
+      }
+    }
+
     function formatLayers(active, target, sellHit) {
       const layersActive = toNumber(active, 0);
       const layersTarget = toNumber(target, 0);
@@ -460,6 +839,85 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const td = document.createElement('td');
       td.textContent = formatNumber(value, fractionDigits);
       td.classList.add('numeric');
+      return td;
+    }
+
+    function createVelocityCell(symbol) {
+      const td = document.createElement('td');
+      td.classList.add('velocity-cell');
+
+      const main = document.createElement('div');
+      main.classList.add('velocity-main');
+
+      const arrowSpan = document.createElement('span');
+      arrowSpan.classList.add('velocity-arrow');
+
+      const valueSpan = document.createElement('span');
+      valueSpan.classList.add('velocity-value');
+
+      main.appendChild(arrowSpan);
+      main.appendChild(valueSpan);
+      td.appendChild(main);
+
+      const statusSpan = document.createElement('div');
+      statusSpan.classList.add('velocity-status');
+      td.appendChild(statusSpan);
+
+      const bpsRaw = Number(symbol.velocity_bps);
+      const hasBps = Number.isFinite(bpsRaw);
+      const velocityActive = Boolean(symbol.velocity_active);
+      const velocityReady = Boolean(symbol.velocity_ready);
+
+      let direction = 'neutral';
+      if (hasBps) {
+        if (bpsRaw > 0.01) direction = 'positive';
+        else if (bpsRaw < -0.01) direction = 'negative';
+      }
+
+      const arrowChar = direction === 'positive' ? '>' : direction === 'negative' ? '<' : '·';
+      arrowSpan.textContent = arrowChar;
+      valueSpan.textContent = hasBps ? `${Math.abs(bpsRaw).toFixed(1)} bps` : '—';
+
+      if (velocityActive) {
+        statusSpan.textContent = 'Velocity Triggered';
+        td.classList.add('active');
+      } else if (velocityReady) {
+        statusSpan.textContent = 'Velocity Primed';
+      } else if (hasBps) {
+        statusSpan.textContent = 'Velocity Watching';
+        td.classList.add('dim');
+      } else {
+        statusSpan.textContent = 'Velocity Offline';
+        td.classList.add('dim');
+      }
+
+      const magnitude = hasBps ? Math.min(1, Math.abs(bpsRaw) / 25) : 0;
+      let alpha = 0.2 + magnitude * 0.55;
+      if (velocityActive) {
+        alpha = Math.min(0.95, alpha + 0.25);
+      } else if (velocityReady) {
+        alpha = Math.min(0.9, alpha + 0.1);
+      }
+
+      if (direction === 'positive') {
+        td.classList.add('positive');
+        const background = `rgba(34, 197, 94, ${alpha.toFixed(3)})`;
+        td.style.backgroundColor = background;
+        td.style.color = alpha > 0.55 ? '#022c22' : '#dcfce7';
+      } else if (direction === 'negative') {
+        td.classList.add('negative');
+        const background = `rgba(248, 113, 113, ${alpha.toFixed(3)})`;
+        td.style.backgroundColor = background;
+        td.style.color = alpha > 0.55 ? '#450a0a' : '#fee2e2';
+      } else {
+        td.classList.add('neutral');
+      }
+
+      if (!hasBps) {
+        arrowSpan.style.opacity = '0.6';
+        valueSpan.style.opacity = '0.8';
+      }
+
       return td;
     }
 
@@ -649,7 +1107,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const td = document.createElement('td');
       td.classList.add('slider-cell');
       const symbolName = typeof symbol.symbol === 'string' ? symbol.symbol : '';
-      if (!symbolName) {
+      if (!symbolName || symbolName === '—') {
         td.textContent = '—';
         return td;
       }
@@ -748,6 +1206,216 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       return td;
     }
 
+    function getLadderLevels(symbol, type) {
+      const key = type === 'buy' ? 'buy_ladder_levels' : 'sell_ladder_levels';
+      const raw = symbol[key];
+      if (!Array.isArray(raw)) {
+        return [];
+      }
+      return raw
+        .map((value, index) => {
+          if (value === null || value === undefined) {
+            return null;
+          }
+          const num = Number(value);
+          if (!Number.isFinite(num)) {
+            return null;
+          }
+          return { index, value: num };
+        })
+        .filter(Boolean);
+    }
+
+    function getNextIndex(symbol, type) {
+      const raw = type === 'buy' ? symbol.next_buy_index : symbol.next_sell_index;
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        return Math.max(0, Math.floor(raw));
+      }
+      return null;
+    }
+
+    function createLadderSummary(symbol, type, nextIndex, lastPrice) {
+      const box = document.createElement('div');
+      box.classList.add('ladder-next', type);
+
+      const label = document.createElement('span');
+      label.classList.add('label');
+      label.textContent = type === 'buy' ? 'Next Buy' : 'Next Sell';
+      box.appendChild(label);
+
+      const value = document.createElement('span');
+      value.classList.add('value');
+
+      const levelValueRaw = type === 'buy' ? symbol.next_buy_level : symbol.next_sell_level;
+      const levelValue = Number(levelValueRaw);
+      const rungIndex = typeof nextIndex === 'number' && Number.isFinite(nextIndex) ? nextIndex + 1 : null;
+      const lastNum = Number(lastPrice);
+
+      if (Number.isFinite(levelValue)) {
+        const rungPart = rungIndex ? `L${rungIndex} · ` : '';
+        const deltaText = Number.isFinite(lastNum) ? formatDelta(levelValue, lastNum) : '';
+        value.textContent = `${rungPart}${formatNumber(levelValue, 2)}${deltaText ? ` (${deltaText})` : ''}`;
+      } else {
+        value.textContent = '—';
+      }
+
+      box.appendChild(value);
+      return box;
+    }
+
+    function detectLadderOverlap(buyLevels, sellLevels) {
+      if (!Array.isArray(buyLevels) || !buyLevels.length) {
+        return null;
+      }
+      if (!Array.isArray(sellLevels) || !sellLevels.length) {
+        return null;
+      }
+
+      let highestBuy = null;
+      for (const rung of buyLevels) {
+        if (!highestBuy || rung.value > highestBuy.value) {
+          highestBuy = rung;
+        }
+      }
+
+      let lowestSell = null;
+      for (const rung of sellLevels) {
+        if (!lowestSell || rung.value < lowestSell.value) {
+          lowestSell = rung;
+        }
+      }
+
+      if (highestBuy && lowestSell && highestBuy.value >= lowestSell.value) {
+        return { buy: highestBuy, sell: lowestSell };
+      }
+
+      return null;
+    }
+
+    function createLadderColumn(symbol, type, context = {}) {
+      const column = document.createElement('div');
+      column.classList.add('ladder-column', type);
+
+      const title = document.createElement('div');
+      title.classList.add('ladder-title');
+      title.textContent = type === 'buy' ? 'Buy ladder' : 'Sell ladder';
+      column.appendChild(title);
+
+      const levels = Array.isArray(context.levels) ? context.levels : getLadderLevels(symbol, type);
+      const rungs = document.createElement('div');
+      rungs.classList.add('ladder-rungs');
+      const nextIndex = typeof context.nextIndex === 'number' && Number.isFinite(context.nextIndex)
+        ? Math.max(0, Math.floor(context.nextIndex))
+        : getNextIndex(symbol, type);
+      const lastPrice = typeof context.lastPrice === 'number' && Number.isFinite(context.lastPrice)
+        ? context.lastPrice
+        : Number(symbol.last);
+
+      if (!levels.length) {
+        const placeholder = document.createElement('div');
+        placeholder.classList.add('ladder-empty');
+        placeholder.textContent = 'No levels';
+        rungs.appendChild(placeholder);
+        column.appendChild(rungs);
+        return column;
+      }
+
+      for (const { index, value } of levels) {
+        const rung = document.createElement('div');
+        rung.classList.add('ladder-rung', type);
+        if (nextIndex !== null && index === nextIndex) {
+          rung.classList.add('active');
+        }
+
+        const indexSpan = document.createElement('span');
+        indexSpan.classList.add('rung-index');
+        indexSpan.textContent = `L${index + 1}`;
+        rung.appendChild(indexSpan);
+
+        const priceSpan = document.createElement('span');
+        priceSpan.classList.add('rung-price');
+        priceSpan.textContent = formatNumber(value, 2);
+        rung.appendChild(priceSpan);
+
+        if (Number.isFinite(lastPrice)) {
+          const deltaText = formatDelta(value, lastPrice);
+          if (deltaText) {
+            const deltaSpan = document.createElement('span');
+            deltaSpan.classList.add('rung-delta');
+            deltaSpan.textContent = deltaText;
+            rung.appendChild(deltaSpan);
+          }
+        }
+
+        rungs.appendChild(rung);
+      }
+
+      column.appendChild(rungs);
+      return column;
+    }
+
+    function createChartCell(symbol) {
+      const td = document.createElement('td');
+      td.classList.add('chart-cell');
+      const wrapper = document.createElement('div');
+      wrapper.classList.add('chart-wrapper');
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.classList.add('chart-svg');
+      svg.setAttribute('viewBox', `0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`);
+      svg.setAttribute('preserveAspectRatio', 'none');
+      wrapper.appendChild(svg);
+      td.appendChild(wrapper);
+
+      const lastPrice = Number(symbol.last);
+      const buyLevels = getLadderLevels(symbol, 'buy');
+      const sellLevels = getLadderLevels(symbol, 'sell');
+      const nextBuyIndex = getNextIndex(symbol, 'buy');
+      const nextSellIndex = getNextIndex(symbol, 'sell');
+
+      const meta = document.createElement('div');
+      meta.classList.add('ladder-meta');
+      meta.appendChild(createLadderSummary(symbol, 'buy', nextBuyIndex, lastPrice));
+      meta.appendChild(createLadderSummary(symbol, 'sell', nextSellIndex, lastPrice));
+      td.appendChild(meta);
+
+      const ladders = document.createElement('div');
+      ladders.classList.add('ladder-wrapper');
+      ladders.appendChild(createLadderColumn(symbol, 'buy', {
+        levels: buyLevels,
+        nextIndex: nextBuyIndex,
+        lastPrice,
+      }));
+      ladders.appendChild(createLadderColumn(symbol, 'sell', {
+        levels: sellLevels,
+        nextIndex: nextSellIndex,
+        lastPrice,
+      }));
+      td.appendChild(ladders);
+
+      const overlap = detectLadderOverlap(buyLevels, sellLevels);
+      if (overlap) {
+        td.classList.add('ladder-overlap');
+        const alert = document.createElement('div');
+        alert.classList.add('ladder-alert');
+        const label = document.createElement('span');
+        label.classList.add('label');
+        label.textContent = 'Overlap';
+        const text = document.createElement('span');
+        text.textContent = `Buy L${overlap.buy.index + 1} (${formatNumber(overlap.buy.value, 2)}) ≥ Sell L${overlap.sell.index + 1} (${formatNumber(overlap.sell.value, 2)})`;
+        alert.appendChild(label);
+        alert.appendChild(text);
+        td.appendChild(alert);
+      }
+
+      if (symbol.symbol && symbol.symbol !== '—') {
+        const state = ensureChartState(symbol.symbol);
+        state.svg = svg;
+        renderChart(symbol.symbol);
+      }
+
+      return td;
+    }
+
     function renderConstants(constants) {
       if (!constantsPanel) {
         return;
@@ -837,10 +1505,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       tr.appendChild(createNumericCell(symbol.reference, 2));
       tr.appendChild(createLevelCell(symbol, 'buy'));
       tr.appendChild(createLevelCell(symbol, 'sell'));
+      tr.appendChild(createChartCell(symbol));
       tr.appendChild(createSliderCell(symbol, 'buy'));
       tr.appendChild(createSliderCell(symbol, 'sell'));
       tr.appendChild(createNumericCell(symbol.vwv_z, 2));
-      tr.appendChild(createNumericCell(symbol.velocity_bps, 1));
+      tr.appendChild(createVelocityCell(symbol));
 
       const layersTd = document.createElement('td');
       layersTd.textContent = formatLayers(symbol.buy_layers_active, symbol.buy_layers_target, symbol.sell_layers_hit);
@@ -856,14 +1525,31 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       statusTd.classList.add('status');
 
       const entryBadge = document.createElement('span');
-      entryBadge.classList.add('badge', buyReady ? 'entry-true' : 'entry-false');
-      if (buyReady) {
-        entryBadge.textContent = `Entry Ready${hasLayerGap ? ` (+${layersGapValue})` : ''}`;
+      entryBadge.classList.add('badge');
+      const velocityActive = Boolean(symbol.velocity_active);
+      const velocityReady = Boolean(symbol.velocity_ready);
+
+      if (velocityActive) {
+        entryBadge.classList.add('entry-true');
+        entryBadge.textContent = 'Velocity Triggered';
+      } else if (buyReady) {
+        entryBadge.classList.add('entry-true');
+        entryBadge.textContent = 'Entry Ready';
+      } else if (velocityReady) {
+        entryBadge.classList.add('entry-false');
+        entryBadge.textContent = 'Velocity Primed';
       } else if (lookingToEnter) {
-        entryBadge.textContent = `Entry Watching${hasLayerGap ? ` (+${layersGapValue})` : ''}`;
+        entryBadge.classList.add('entry-scout');
+        entryBadge.textContent = 'Entry Watching';
       } else {
-        entryBadge.textContent = 'Entry Waiting';
+        entryBadge.classList.add('entry-false');
+        entryBadge.textContent = 'Entry Cooling';
       }
+
+      if (hasLayerGap && (buyReady || lookingToEnter)) {
+        entryBadge.textContent += ` (+${layersGapValue})`;
+      }
+
       statusTd.appendChild(entryBadge);
 
       if (lookingToEnter && !buyReady) {
@@ -872,13 +1558,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         scoutBadge.textContent = 'Price Ladder';
         statusTd.appendChild(scoutBadge);
       }
-
-      const velocityBadge = document.createElement('span');
-      const velocityActive = Boolean(symbol.velocity_active);
-      const velocityReady = Boolean(symbol.velocity_ready);
-      velocityBadge.classList.add('badge', (velocityActive || velocityReady) ? 'velocity-true' : 'velocity-false');
-      velocityBadge.textContent = velocityActive ? 'Velocity Active' : (velocityReady ? 'Velocity Ready' : 'Velocity Cooldown');
-      statusTd.appendChild(velocityBadge);
 
       const sellBadge = document.createElement('span');
       sellBadge.classList.add('badge', sellReady ? 'sell-true' : 'sell-false');
@@ -896,6 +1575,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         tableContainer.innerHTML = '<div class="placeholder">No active symbols available yet. Confirm the bot is running in RTH and writing snapshots.</div>';
         renderConstants(snapshot ? snapshot.constants : null);
         document.title = 'Dronebot Entry Dashboard';
+        chartState.clear();
         return;
       }
 
@@ -915,6 +1595,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         }));
 
       rows.sort((a, b) => a.symbol.localeCompare(b.symbol));
+      for (const symbol of rows) {
+        recordChartPoint(symbol);
+      }
       for (const symbol of rows) {
         tbody.appendChild(buildRow(symbol));
       }
@@ -936,7 +1619,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       tableContainer.innerHTML = '';
       tableContainer.appendChild(fragment);
 
-      const activeSymbols = new Set(rows.map((item) => item.symbol));
+      const activeSymbols = new Set(
+        rows
+          .map((item) => (typeof item.symbol === 'string' && item.symbol !== '—' ? item.symbol : null))
+          .filter(Boolean),
+      );
       for (const key of Array.from(sliderState.keys())) {
         if (!activeSymbols.has(key)) {
           sliderState.delete(key);
@@ -946,6 +1633,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         if (!activeSymbols.has(key)) {
           window.clearTimeout(sliderTimers.get(key));
           sliderTimers.delete(key);
+        }
+      }
+      for (const key of Array.from(chartState.keys())) {
+        if (!activeSymbols.has(key)) {
+          chartState.delete(key);
         }
       }
     }
@@ -966,7 +1658,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         renderConstants(null);
         console.error('snapshot fetch error', err);
       } finally {
-        window.setTimeout(pollSnapshot, 1500);
+        window.setTimeout(pollSnapshot, 900);
       }
     }
 
