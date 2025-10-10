@@ -109,8 +109,8 @@ TARGET_UTILIZATION_FRAC = float(os.getenv('TARGET_UTILIZATION_FRAC', '0.67'))
 # context for manual scaling. The multipliers are centered around 1.0 so that
 # the ladder displays around the live anchor rather than in front of it.
 ANCHOR_DISTANCE_MULT = float(os.getenv("ANCHOR_DISTANCE_MULT", "2.0"))
-BUY_LADDER_MULTS  = [0.75, 0.85, 0.92, 1.0, 1.08, 1.15, 1.25]   # multipliers on buy% ladder
-SELL_LADDER_MULTS = [0.75, 0.85, 0.92, 1.0, 1.08, 1.15, 1.25]   # multipliers on sell% ladder
+BUY_LADDER_MULTS  = [0.375, 0.520, 0.721, 1.0, 1.077, 1.160, 1.25]   # multipliers on buy% ladder
+SELL_LADDER_MULTS = [0.375, 0.520, 0.721, 1.0, 1.077, 1.160, 1.25]   # multipliers on sell% ladder
 SPREAD_CLASS_MULTS = {'risky': 5.0, 'safe': 3.0}
 BUY_RUNG_CLIP_MULTS  = [1.0, 1.2, 1.4, 1.6, 1.85, 2.1, 2.3]   # clip scaling for successive ladder entries
 
