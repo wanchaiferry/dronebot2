@@ -82,6 +82,7 @@ PNL_CSV   = 'pnl_summary_live.csv'
 TARGETS_TXT = 'targets.txt'
 ERR_LOG   = 'bot_errors.log'
 DASHBOARD_SNAPSHOT_PATH = os.getenv('DASHBOARD_SNAPSHOT_PATH', 'dashboard_snapshot.json')
+DASHBOARD_OVERRIDES_PATH = os.getenv('DASHBOARD_OVERRIDES_PATH', 'dashboard_overrides.json')
 
 # ---------- Exec & Risk ----------
 SPREAD_LIMIT_RISKY = 180.0  # bps
@@ -256,10 +257,31 @@ def _round_or_none(value: Optional[float], digits: int) -> Optional[float]:
         return None
 
 
+def dashboard_constants() -> List[dict]:
+    """Return key risk/velocity constants for the dashboard reminder banner."""
+
+    constants = [
+        ('Velocity Target (bps/s)', f'{VELOCITY_TRIGGER_BPS_PER_SEC:.0f}'),
+        ('Velocity Exit (bps/s)', f'{VELOCITY_EXIT_BPS_PER_SEC:.0f}'),
+        ('Velocity Cooldown (s)', f'{VELOCITY_TRADE_COOLDOWN_SEC:.0f}'),
+        ('Max Velocity Hold (s)', f'{VELOCITY_MAX_HOLD_SEC:.0f}'),
+        ('Buy Cooldown (s)', f'{BUY_COOLDOWN_SEC:.1f}'),
+        ('Trail %', f'{TRAIL_PCT:.2f}'),
+        ('Hard Stop %', f'{HARD_STOP_PCT:.2f}'),
+    ]
+
+    return [
+        {'label': label, 'value': value}
+        for label, value in constants
+        if value is not None
+    ]
+
+
 def write_dashboard_snapshot(records: List[dict], path: str = DASHBOARD_SNAPSHOT_PATH):
     payload = {
         'updated': now_eastern().isoformat(timespec='seconds'),
         'symbols': records,
+        'constants': dashboard_constants(),
     }
     tmp_path = path + '.tmp'
     try:
@@ -312,6 +334,66 @@ def read_targets(path=TARGETS_TXT) -> Dict[str, dict]:
                         except: pass
             out[sym]=rec
     return out
+
+
+def load_dashboard_overrides(path: str = DASHBOARD_OVERRIDES_PATH) -> Dict[str, dict]:
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            raw = json.load(f)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError as exc:
+        log_error(f'dashboard overrides decode error: {exc}')
+        return {}
+    except Exception as exc:
+        log_error(f'dashboard overrides read error: {exc}')
+        return {}
+
+    if not isinstance(raw, dict):
+        return {}
+
+    overrides: Dict[str, dict] = {}
+    for sym, payload in raw.items():
+        if not isinstance(payload, dict):
+            continue
+        entry: Dict[str, float] = {}
+        if 'buy' in payload:
+            try:
+                entry['buy'] = max(0.05, float(payload['buy']))
+            except Exception:
+                pass
+        if 'sell' in payload:
+            try:
+                entry['sell'] = max(0.05, float(payload['sell']))
+            except Exception:
+                pass
+        if entry:
+            overrides[str(sym).upper()] = entry
+    return overrides
+
+
+def apply_dashboard_overrides(
+    targets: Dict[str, dict],
+    base_targets: Dict[str, dict],
+    overrides: Dict[str, dict],
+) -> None:
+    for sym, rec in targets.items():
+        base = base_targets.get(sym)
+        if not base:
+            continue
+        if 'buy' in base:
+            rec['buy'] = base['buy']
+        if 'sell' in base:
+            rec['sell'] = base['sell']
+
+    for sym, entry in overrides.items():
+        rec = targets.get(sym)
+        if not rec:
+            continue
+        if 'buy' in entry:
+            rec['buy'] = entry['buy']
+        if 'sell' in entry:
+            rec['sell'] = entry['sell']
 
 # ---------- Historical anchors ----------
 def ib_end_dt_us_eastern(ymd_dash: str) -> str:
@@ -597,6 +679,26 @@ def run_live():
                     targets[sym]={'sym':sym,'class':'risky','buy':2.0,'sell':1.5,'clip':None}
                 log("No targets.txt found; using defaults.")
 
+            base_targets = {
+                sym: {
+                    'buy': float(rec.get('buy', 2.0)),
+                    'sell': float(rec.get('sell', 1.5)),
+                }
+                for sym, rec in targets.items()
+            }
+            overrides_cache = load_dashboard_overrides()
+            overrides_mtime = None
+            if overrides_cache:
+                apply_dashboard_overrides(targets, base_targets, overrides_cache)
+                log(
+                    "Dashboard overrides loaded for: "
+                    + ", ".join(sorted(overrides_cache.keys()))
+                )
+            try:
+                overrides_mtime = os.path.getmtime(DASHBOARD_OVERRIDES_PATH)
+            except OSError:
+                overrides_mtime = None
+
             # Contracts & market data
             contracts={}
             for sym in targets:
@@ -690,6 +792,42 @@ def run_live():
 
                 pnl_rows=[]
                 snapshot_records: List[dict] = []
+
+                overrides_changed = False
+                try:
+                    current_mtime = os.path.getmtime(DASHBOARD_OVERRIDES_PATH)
+                except FileNotFoundError:
+                    current_mtime = None
+                    if overrides_cache:
+                        overrides_cache = {}
+                        overrides_changed = True
+                    overrides_mtime = None
+                except OSError:
+                    current_mtime = overrides_mtime
+                else:
+                    if overrides_mtime is None and current_mtime is not None:
+                        overrides_cache = load_dashboard_overrides()
+                        overrides_changed = True
+                        overrides_mtime = current_mtime
+                    elif (
+                        current_mtime is not None
+                        and overrides_mtime is not None
+                        and current_mtime > overrides_mtime
+                    ):
+                        overrides_cache = load_dashboard_overrides()
+                        overrides_changed = True
+                        overrides_mtime = current_mtime
+
+                if overrides_changed:
+                    apply_dashboard_overrides(targets, base_targets, overrides_cache)
+                    if overrides_cache:
+                        log(
+                            "Dashboard overrides applied for: "
+                            + ", ".join(sorted(overrides_cache.keys()))
+                        )
+                    else:
+                        log("Dashboard overrides cleared; reverted to base targets.")
+
                 for sym, rec in targets.items():
                     try:
                         c = contracts[sym]
@@ -959,12 +1097,52 @@ def run_live():
 
                         # HUD / logging snapshot
                         u = (last - avg[sym]) * pos[sym] if pos[sym] > 0 and avg[sym] > 0 else 0.0
+                        buy_level_count = len(display_buy_levels)
+                        sell_level_count = len(display_sell_levels)
+
+                        next_buy_idx: Optional[int] = None
+                        if buy_level_count > 0:
+                            next_buy_idx = active_layers
+                            if next_buy_idx >= buy_level_count:
+                                next_buy_idx = buy_level_count - 1
+
+                        next_sell_idx: Optional[int] = None
+                        if sell_level_count > 0:
+                            next_sell_idx = sell_levels_hit
+                            if next_sell_idx >= sell_level_count:
+                                next_sell_idx = sell_level_count - 1
+
+                        next_buy_level = (
+                            display_buy_levels[next_buy_idx]
+                            if (
+                                next_buy_idx is not None
+                                and 0 <= next_buy_idx < buy_level_count
+                            )
+                            else None
+                        )
+
+                        next_sell_level = (
+                            display_sell_levels[next_sell_idx]
+                            if (
+                                next_sell_idx is not None
+                                and 0 <= next_sell_idx < sell_level_count
+                            )
+                            else None
+                        )
+
+                        looking_to_enter = desired_buy_layers > active_layers
+                        looking_to_exit = sell_levels_hit > 0
+
                         snapshot_records.append({
                             'symbol': sym,
                             'last': _round_or_none(last, 4),
                             'reference': _round_or_none(ref, 4),
                             'vwv_z': _round_or_none(z, 2),
                             'velocity_bps': _round_or_none(vel, 1),
+                            'input_buy_pct': _round_or_none(base_buy_pct, 3),
+                            'input_sell_pct': _round_or_none(base_sell_pct, 3),
+                            'effective_buy_pct': _round_or_none(buy_pct, 3),
+                            'effective_sell_pct': _round_or_none(sell_pct, 3),
                             'buy_ready': bool(
                                 cooldown_ready
                                 and buy_momentum_ok
@@ -981,6 +1159,16 @@ def run_live():
                             'clip_usd': _round_or_none(clip_usd, 2),
                             'unrealized': _round_or_none(u, 2),
                             'cooldown_ready': bool(cooldown_ready),
+                            'looking_to_enter': bool(looking_to_enter),
+                            'looking_to_exit': bool(looking_to_exit),
+                            'override_active': bool(sym in overrides_cache),
+                            'next_buy_level': _round_or_none(next_buy_level, 4),
+                            'next_sell_level': _round_or_none(next_sell_level, 4),
+                            'next_buy_index': int(next_buy_idx) if next_buy_idx is not None else None,
+                            'next_sell_index': int(next_sell_idx) if next_sell_idx is not None else None,
+                            'buy_level_count': buy_level_count,
+                            'sell_level_count': sell_level_count,
+                            'buy_layers_gap': max(0, desired_buy_layers - active_layers),
                         })
                         bl = ','.join(f"{x:.2f}" for x in display_buy_levels)
                         sl = ','.join(f"{x:.2f}" for x in display_sell_levels)
