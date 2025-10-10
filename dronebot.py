@@ -1169,6 +1169,12 @@ def run_live():
                             'buy_level_count': buy_level_count,
                             'sell_level_count': sell_level_count,
                             'buy_layers_gap': max(0, desired_buy_layers - active_layers),
+                            'buy_ladder_levels': [
+                                _round_or_none(level, 4) for level in display_buy_levels
+                            ],
+                            'sell_ladder_levels': [
+                                _round_or_none(level, 4) for level in display_sell_levels
+                            ],
                         })
                         bl = ','.join(f"{x:.2f}" for x in display_buy_levels)
                         sl = ','.join(f"{x:.2f}" for x in display_sell_levels)
