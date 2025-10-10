@@ -1,3 +1,8 @@
 @echo off
+setlocal
 cd /d %~dp0
-call "%~dp0run_trading_suite.bat" %*
+
+REM Convenience wrapper to launch the live dronebot loop.
+call "%~dp0run_live.bat" %*
+
+endlocal
