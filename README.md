@@ -17,6 +17,7 @@ This repository contains a single Python trading bot that connects to Interactiv
 ## Ladder Levels & Clips
 * Each ticker prints seven ladder prices (L1–L7 for buys and U1–U7 for sells) around the blended reference. The multipliers remain centered so the mid rung reflects the live anchor while the outer rungs fan out for context without shifting the automated trigger.
 * All seven rungs act as automated entries/exits. When price trades through deeper buy levels while VWV momentum is positive, the bot scales in with progressively larger clips sized from the live plan. As price bounces into any of the seven sell rungs with negative VWV momentum, the bot unwinds the matching tier so the position steps down in the same order it was built.
+* The ladder math treats every rung as live on both sides: the entry loop counts how many of the seven buy thresholds the last price has touched and immediately places shares for the next unused rung, while the trim loop checks all seven sell rungs to peel layers off in reverse when price recovers.【F:dronebot.py†L963-L999】 Because the rung clip multipliers start at 1.0× and climb through 2.3×, that first buy rung deploys the smallest notional and each additional dip adds progressively larger clips until the ladder is fully active.【F:dronebot.py†L115-L118】【F:dronebot.py†L951-L977】
 * Ladder clips are denominated in USD and expand with depth (default multipliers run from 1.0x out to 2.3x of the base clip). The base clip itself is computed dynamically from the ticker's risk class, its share of the equity allocation, and the latest price; `targets.txt` can still override that baseline with a fixed `clip=` amount.
 * Base buy/sell percentage offsets still originate from `targets.txt`. The configured `buy=` and `sell=` values are applied to every rung before the ladder is widened for the HUD, so per-ticker tuning continues to flow directly from the targets file.
 * Capital sizing is tuned for roughly two-thirds utilization of the configured live equity (≈$100k when the default $150k budget is supplied). The dynamic plan recomputes share targets each loop so deeper ladders keep putting more notional to work as prices fall while trimming uses the same tiers when price reverses higher.
@@ -36,3 +37,55 @@ This repository contains a single Python trading bot that connects to Interactiv
 * `pre_session_anchors.py` can still be run directly to print the previous session's AM and PM blended anchors, ladder levels, and clip sizing for each symbol configured in `targets.txt`. Use `python pre_session_anchors.py` (optionally `--date YYYY-MM-DD`) after connecting TWS or IB Gateway to review plan levels ahead of the session. The launcher calls this script for you and can optionally chain into the fill review helpers.
 * `entry_dashboard.py` launches a lightweight HTTP server that renders a color-coded dashboard showing when entry conditions are satisfied. It now auto-detects the snapshot path, exposes a `/healthz` endpoint, and displays a status summary (counts of entry-ready / trim-ready / velocity-active symbols) alongside a more resilient UI that keeps retrying on fetch errors. Run `python entry_dashboard.py --host 0.0.0.0 --port 8765` while the bot is active, then open the reported URL in a browser to watch entry (green) and trim (red) readiness at a glance.
 * `fill_analysis.py` exposes a small CLI: `python fill_analysis.py [fills_live.csv] --summary --interactive` prints a per-symbol table and then lets you iteratively request detailed stats for tickers. Add `--symbol XYZ` to immediately describe one symbol and exit, or run without flags to simply print the summary table.
+
+### Entry dashboard controls & ladder math
+
+The dashboard "sliders" are now numeric up/down inputs so you can tap or type the base percentage offsets precisely instead of dragging a range control. Each box writes back to `dashboard_overrides.json`, which the bot reads on its next loop, and the value shown in the badge underneath the control flips between **Default** and **Override** once the override file acknowledges the change.
+
+These numbers set the *base* buy/sell percentages that come out of `targets.txt`. The live ladder widens those bases before printing the levels you see on screen: the bot multiplies the base value by a spread-class factor (5× for `risky`, 3× for `safe`) and then adjusts again for live VWV momentum (`buy_mult` and `sell_mult`).【F:dronebot.py†L867-L909】 As a result, a seemingly small 0.60% base buy offset still becomes roughly a 3% anchor for a risky symbol when the market is neutral (0.60 × 5 × 1.0 ≈ 3). The ladder rungs then fan out around that anchor using the `BUY_LADDER_MULTS`/`SELL_LADDER_MULTS` arrays so that rung four remains the live trigger while the surrounding tiers provide context.【F:dronebot.py†L112-L116】【F:dronebot.py†L890-L899】 If price action or spread conditions pull the anchors closer together, remember that the same multipliers continue to hold the actual execution levels apart — the display simply widens the outer rungs for readability without changing the trading triggers.【F:dronebot.py†L900-L913】
+
+#### Worked override examples
+
+The tables below show exactly how three different override inputs expand into ladder levels when the blended reference price is $100. In each case L4/U4 is the live trading anchor while the other rungs stay symmetric around it.【F:dronebot.py†L890-L903】 Percent offsets are rounded to three decimals and prices to two decimals for readability.
+
+**Neutral risky (buy=0.60%, sell=0.60%, VWV z=0.0)**
+
+| Rung | Buy % | Buy price | Sell % | Sell price |
+| --- | --- | --- | --- | --- |
+| L1/U1 | 2.250% | $97.75 | 2.250% | $102.25 |
+| L2/U2 | 2.550% | $97.45 | 2.550% | $102.55 |
+| L3/U3 | 2.760% | $97.24 | 2.760% | $102.76 |
+| **L4/U4 (anchor)** | **3.000%** | **$97.00** | **3.000%** | **$103.00** |
+| L5/U5 | 3.240% | $96.76 | 3.240% | $103.24 |
+| L6/U6 | 3.450% | $96.55 | 3.450% | $103.45 |
+| L7/U7 | 3.750% | $96.25 | 3.750% | $103.75 |
+
+**Momentum risky (buy=0.60%, sell=0.60%, VWV z=+1.5)**
+
+| Rung | Buy % | Buy price | Sell % | Sell price |
+| --- | --- | --- | --- | --- |
+| L1/U1 | 3.094% | $96.91 | 1.744% | $101.74 |
+| L2/U2 | 3.506% | $96.49 | 1.976% | $101.98 |
+| L3/U3 | 3.795% | $96.21 | 2.139% | $102.14 |
+| **L4/U4 (anchor)** | **4.125%** | **$95.88** | **2.325%** | **$102.33** |
+| L5/U5 | 4.455% | $95.55 | 2.511% | $102.51 |
+| L6/U6 | 4.744% | $95.26 | 2.674% | $102.67 |
+| L7/U7 | 5.156% | $94.84 | 2.906% | $102.91 |
+
+**Safe class (buy=0.40%, sell=0.50%, VWV z=0.0)**
+
+| Rung | Buy % | Buy price | Sell % | Sell price |
+| --- | --- | --- | --- | --- |
+| L1/U1 | 0.900% | $99.10 | 1.125% | $101.13 |
+| L2/U2 | 1.020% | $98.98 | 1.275% | $101.28 |
+| L3/U3 | 1.104% | $98.90 | 1.380% | $101.38 |
+| **L4/U4 (anchor)** | **1.200%** | **$98.80** | **1.500%** | **$101.50** |
+| L5/U5 | 1.296% | $98.70 | 1.620% | $101.62 |
+| L6/U6 | 1.380% | $98.62 | 1.725% | $101.73 |
+| L7/U7 | 1.500% | $98.50 | 1.875% | $101.88 |
+
+How the numbers fall out:
+
+* **Neutral risky example** – With a risky spread multiplier of 5× and neutral VWV momentum (multiplier 1.0), a 0.60% override produces a 3.00% anchor (`0.60 × 5 × 1.0`). That offset is applied at every rung multiplier so the ladder ranges from 2.25% to 3.75% below/above the reference.【F:dronebot.py†L112-L116】【F:dronebot.py†L885-L899】 
+* **Momentum risky example** – A +1.5 VWV z-score bumps the buy multiplier to 1.375 and trims the sell multiplier to 0.775, so the same 0.60% override yields a 4.125% buy anchor and a 2.325% sell anchor before the ladder fan-out.【F:dronebot.py†L867-L909】
+* **Safe-class example** – Safe symbols use the 3× spread multiplier, so 0.40%/0.50% overrides translate into 1.200%/1.500% anchors even without momentum adjustment, producing a tighter ladder around the $100 reference.【F:dronebot.py†L885-L899】

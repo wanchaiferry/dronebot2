@@ -351,15 +351,33 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       text-shadow: 0 0 8px rgba(34,197,94,0.45);
     }
     .slider-input {
-      width: 100%;
-      accent-color: #38bdf8;
-      cursor: pointer;
+      width: 90px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      background: rgba(15, 23, 42, 0.6);
+      color: #f8fafc;
+      font-size: 0.95rem;
+      font-variant-numeric: tabular-nums;
+      text-align: right;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
     .slider-input.buy {
-      accent-color: #f87171;
+      border-color: rgba(248, 113, 113, 0.35);
+      box-shadow: inset 0 0 8px rgba(248, 113, 113, 0.15);
     }
     .slider-input.sell {
-      accent-color: #34d399;
+      border-color: rgba(34, 197, 94, 0.35);
+      box-shadow: inset 0 0 8px rgba(34, 197, 94, 0.15);
+    }
+    .slider-input:focus {
+      outline: none;
+      border-color: rgba(96, 165, 250, 0.65);
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.35);
+    }
+    .slider-input::-webkit-outer-spin-button,
+    .slider-input::-webkit-inner-spin-button {
+      opacity: 0.6;
     }
     .slider-status {
       font-size: 0.7rem;
@@ -535,27 +553,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       sell: { min: 0.25, max: 8, step: 0.05 },
     };
 
-    function styleSliderTrack(input, type, value) {
-      if (!input) {
-        return;
-      }
-      const min = Number(input.min);
-      const max = Number(input.max);
-      if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) {
-        input.style.background = '';
-        return;
-      }
-      const clamped = Math.min(1, Math.max(0, (Number(value) - min) / (max - min)));
-      const stop = `${(clamped * 100).toFixed(2)}%`;
-      if (type === 'buy') {
-        const intensity = 0.35 + 0.55 * (1 - clamped);
-        input.style.background = `linear-gradient(90deg, rgba(248,113,113,${intensity.toFixed(3)}) ${stop}, rgba(15,23,42,0.65) ${stop})`;
-      } else {
-        const intensity = 0.28 + 0.6 * clamped;
-        input.style.background = `linear-gradient(90deg, rgba(34,197,94,${intensity.toFixed(3)}) ${stop}, rgba(15,23,42,0.65) ${stop})`;
-      }
-    }
-
     function ensureSliderState(symbol, defaults) {
       let state = sliderState.get(symbol);
       if (!state) {
@@ -678,7 +675,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       label.classList.add('slider-value', type);
 
       const slider = document.createElement('input');
-      slider.type = 'range';
+      slider.type = 'number';
+      slider.inputMode = 'decimal';
       slider.classList.add('slider-input', type);
       const rangeCfg = sliderRanges[type];
       slider.min = String(rangeCfg.min);
@@ -696,21 +694,32 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         state.sell_pct = value;
       }
 
-      slider.value = String(value);
+      slider.value = Number(value).toFixed(2);
       label.textContent = `${Number(value).toFixed(2)}%`;
-      styleSliderTrack(slider, type, value);
-
-      slider.addEventListener('input', () => {
-        const nextValue = Number(slider.value);
-        if (type === 'buy') {
-          state.buy_pct = nextValue;
-        } else {
-          state.sell_pct = nextValue;
+      const applySliderValue = () => {
+        if (!slider) {
+          return;
         }
-        label.textContent = `${nextValue.toFixed(2)}%`;
-        styleSliderTrack(slider, type, nextValue);
+        const nextValue = Number(slider.value);
+        if (!Number.isFinite(nextValue)) {
+          return;
+        }
+        const clamped = Math.min(Number(slider.max), Math.max(Number(slider.min), nextValue));
+        if (clamped !== nextValue) {
+          slider.value = clamped.toFixed(2);
+        }
+        if (type === 'buy') {
+          state.buy_pct = clamped;
+        } else {
+          state.sell_pct = clamped;
+        }
+        label.textContent = `${clamped.toFixed(2)}%`;
         queueOverride(symbolName);
-      });
+      };
+
+      slider.addEventListener('input', applySliderValue);
+      slider.addEventListener('change', applySliderValue);
+      slider.addEventListener('blur', applySliderValue);
 
       const status = document.createElement('div');
       status.classList.add('slider-status');
