@@ -79,7 +79,7 @@ exit /b 0
 
 :launch_dashboard
 setlocal
-set "DEFAULT_DASH_HOST=0.0.0.0"
+set "DEFAULT_DASH_HOST=127.0.0.1"
 set "DEFAULT_DASH_PORT=8765"
 set "DEFAULT_SNAPSHOT=dashboard_snapshot.json"
 
