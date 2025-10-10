@@ -61,6 +61,37 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       font-size: 0.95rem;
       color: #cbd5f5;
     }
+    .constants {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .constants.hidden {
+      display: none;
+    }
+    .constant-chip {
+      background: rgba(30, 64, 175, 0.2);
+      border: 1px solid rgba(96, 165, 250, 0.45);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 0.8rem;
+      color: #bfdbfe;
+      box-shadow: inset 0 0 12px rgba(59,130,246,0.12);
+    }
+    .constant-chip .label {
+      display: block;
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #c7d2fe;
+      margin-bottom: 2px;
+    }
+    .constant-chip .value {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: #e0f2fe;
+    }
     table {
       width: 100%;
       border-collapse: collapse;
@@ -89,8 +120,71 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     tbody tr:last-child td {
       border-bottom: none;
     }
-    tbody tr:hover td {
+    tbody tr:hover td:not(.level-cell) {
       background-color: rgba(59,130,246,0.12);
+    }
+    .symbol-cell {
+      font-weight: 600;
+      letter-spacing: 0.05em;
+    }
+    .symbol-cell .signal-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+      vertical-align: middle;
+      background: rgba(34,197,94,0.9);
+      box-shadow: 0 0 8px rgba(34,197,94,0.75);
+      animation: pulse 1.6s ease-in-out infinite;
+    }
+    .symbol-cell .signal-dot.sell {
+      background: rgba(239,68,68,0.9);
+      box-shadow: 0 0 8px rgba(239,68,68,0.7);
+      animation: pulseRed 1.6s ease-in-out infinite;
+    }
+    .symbol-cell .signal-dot.scout {
+      background: rgba(74,222,128,0.7);
+      box-shadow: 0 0 6px rgba(74,222,128,0.6);
+      animation: scoutPulse 1.8s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.4; transform: scale(0.9); }
+      50% { opacity: 1; transform: scale(1.1); }
+    }
+    @keyframes pulseRed {
+      0%, 100% { opacity: 0.55; transform: scale(0.9); }
+      50% { opacity: 1; transform: scale(1.1); }
+    }
+    @keyframes scoutPulse {
+      0%, 100% { opacity: 0.25; transform: scale(0.85); }
+      50% { opacity: 0.8; transform: scale(1.05); }
+    }
+    .symbol-cell.symbol-buy {
+      background: linear-gradient(135deg, rgba(34,197,94,0.35), rgba(16,185,129,0.15));
+      color: #022c22;
+    }
+    .symbol-cell.symbol-sell {
+      background: linear-gradient(135deg, rgba(248,113,113,0.4), rgba(239,68,68,0.2));
+      color: #450a0a;
+    }
+    tbody tr.buy-interest td:first-child {
+      border-left: 3px solid rgba(34,197,94,0.6);
+    }
+    tbody tr.sell-interest td:first-child {
+      border-left: 3px solid rgba(248,113,113,0.6);
+    }
+    tbody tr.buy-ready-row td {
+      background-image: linear-gradient(90deg, rgba(34,197,94,0.18), transparent 75%);
+    }
+    tbody tr.buy-ready-row td.level-cell {
+      background-image: none;
+    }
+    tbody tr.sell-ready-row td {
+      background-image: linear-gradient(90deg, rgba(248,113,113,0.12), transparent 75%);
+    }
+    tbody tr.sell-ready-row td.level-cell {
+      background-image: none;
     }
     .badge {
       display: inline-flex;
@@ -126,6 +220,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       background: rgba(99,102,241,0.25);
       color: #c7d2fe;
     }
+    .entry-scout {
+      background: rgba(16,185,129,0.25);
+      color: #6ee7b7;
+      border: 1px solid rgba(16,185,129,0.45);
+    }
     .status {
       display: flex;
       gap: 8px;
@@ -133,6 +232,20 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
     .numeric {
       font-variant-numeric: tabular-nums;
+    }
+    .level-cell {
+      font-variant-numeric: tabular-nums;
+      border-radius: 8px;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+    .level-cell .level-price {
+      display: block;
+      font-weight: 600;
+    }
+    .level-cell .level-delta {
+      display: block;
+      font-size: 0.75rem;
+      opacity: 0.85;
     }
     .placeholder {
       padding: 32px;
@@ -146,6 +259,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <h1>Dronebot Entry Dashboard</h1>
   <div class=\"updated\" id=\"updated\">Waiting for snapshot…</div>
   <div class=\"summary\" id=\"summary\">No symbols loaded yet.</div>
+  <div class=\"constants hidden\" id=\"constants\"></div>
   <div id=\"table-container\"></div>
   <template id=\"table-template\">
     <table>
@@ -154,6 +268,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <th>Symbol</th>
           <th>Last</th>
           <th>Reference</th>
+          <th>Next Buy</th>
+          <th>Next Sell</th>
           <th>VWV Z</th>
           <th>Velocity</th>
           <th>Layers</th>
@@ -171,6 +287,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     const tableContainer = document.getElementById('table-container');
     const updatedLabel = document.getElementById('updated');
     const summaryLabel = document.getElementById('summary');
+    const constantsPanel = document.getElementById('constants');
     const template = document.getElementById('table-template');
 
     function formatNumber(value, fractionDigits = 2) {
@@ -199,37 +316,212 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       return `${layersActive}/${layersTarget} ↑${sells}`;
     }
 
+    function createNumericCell(value, fractionDigits = 2) {
+      const td = document.createElement('td');
+      td.textContent = formatNumber(value, fractionDigits);
+      td.classList.add('numeric');
+      return td;
+    }
+
+    function formatDelta(level, last) {
+      const levelNum = Number(level);
+      const lastNum = Number(last);
+      if (!Number.isFinite(levelNum) || !Number.isFinite(lastNum) || lastNum === 0) {
+        return '';
+      }
+      const pct = ((levelNum - lastNum) / lastNum) * 100;
+      const sign = pct > 0 ? '+' : '';
+      return `${sign}${pct.toFixed(2)}%`;
+    }
+
+    function applyLevelStyling(td, type, index, count) {
+      if (!(td instanceof HTMLElement)) {
+        return;
+      }
+      if (typeof index !== 'number' || !Number.isFinite(index)) {
+        return;
+      }
+      if (typeof count !== 'number' || !Number.isFinite(count) || count <= 0) {
+        return;
+      }
+      const ratio = Math.min(1, Math.max(0, (index + 1) / count));
+      const baseAlpha = 0.12 + 0.32 * ratio;
+      if (type === 'buy') {
+        td.style.backgroundColor = `rgba(248, 113, 113, ${baseAlpha.toFixed(3)})`;
+        td.style.color = ratio > 0.55 ? '#450a0a' : '#fee2e2';
+      } else {
+        td.style.backgroundColor = `rgba(34, 197, 94, ${baseAlpha.toFixed(3)})`;
+        td.style.color = ratio > 0.55 ? '#022c22' : '#dcfce7';
+      }
+    }
+
+    function createLevelCell(symbol, type) {
+      const td = document.createElement('td');
+      td.classList.add('numeric', 'level-cell');
+      td.classList.add(type === 'buy' ? 'buy-level' : 'sell-level');
+
+      const levelValue = type === 'buy' ? symbol.next_buy_level : symbol.next_sell_level;
+      if (levelValue === null || levelValue === undefined) {
+        td.textContent = '—';
+        return td;
+      }
+
+      const levelNum = Number(levelValue);
+      const lastNum = Number(symbol.last);
+      if (!Number.isFinite(levelNum)) {
+        td.textContent = '—';
+        return td;
+      }
+
+      const priceDiv = document.createElement('div');
+      priceDiv.classList.add('level-price');
+      priceDiv.textContent = formatNumber(levelNum, 2);
+      td.appendChild(priceDiv);
+
+      const deltaText = formatDelta(levelNum, lastNum);
+      if (deltaText) {
+        const deltaDiv = document.createElement('div');
+        deltaDiv.classList.add('level-delta');
+        deltaDiv.textContent = deltaText;
+        td.appendChild(deltaDiv);
+      }
+
+      const indexRaw = type === 'buy' ? symbol.next_buy_index : symbol.next_sell_index;
+      const countRaw = type === 'buy' ? symbol.buy_level_count : symbol.sell_level_count;
+      const index = typeof indexRaw === 'number' && Number.isFinite(indexRaw) ? indexRaw : null;
+      const count = typeof countRaw === 'number' && Number.isFinite(countRaw) ? countRaw : null;
+
+      if (index !== null) {
+        const rung = index + 1;
+        td.title = count ? `Rung ${rung} / ${count}` : `Rung ${rung}`;
+      }
+
+      applyLevelStyling(td, type, index, count);
+      return td;
+    }
+
+    function renderConstants(constants) {
+      if (!constantsPanel) {
+        return;
+      }
+      let entries = [];
+      if (Array.isArray(constants)) {
+        entries = constants
+          .map((item) => (item && typeof item === 'object' ? item : null))
+          .filter((item) => item && item.label && item.value !== undefined && item.value !== null)
+          .map((item) => ({ label: item.label, value: item.value }));
+      } else if (constants && typeof constants === 'object') {
+        entries = Object.entries(constants)
+          .filter(([, value]) => value !== undefined && value !== null)
+          .map(([label, value]) => ({ label, value }));
+      }
+
+      if (!entries.length) {
+        constantsPanel.classList.add('hidden');
+        constantsPanel.innerHTML = '';
+        return;
+      }
+
+      constantsPanel.classList.remove('hidden');
+      constantsPanel.innerHTML = '';
+      for (const entry of entries) {
+        const chip = document.createElement('div');
+        chip.classList.add('constant-chip');
+        const labelSpan = document.createElement('span');
+        labelSpan.classList.add('label');
+        labelSpan.textContent = entry.label;
+        const valueSpan = document.createElement('span');
+        valueSpan.classList.add('value');
+        valueSpan.textContent = typeof entry.value === 'number' && Number.isFinite(entry.value)
+          ? formatNumber(entry.value, entry.value >= 10 ? 0 : 2)
+          : String(entry.value);
+        chip.appendChild(labelSpan);
+        chip.appendChild(valueSpan);
+        constantsPanel.appendChild(chip);
+      }
+    }
+
     function buildRow(symbol) {
       const tr = document.createElement('tr');
 
-      const columns = [
-        ['symbol', symbol.symbol ?? '—'],
-        ['last', formatNumber(symbol.last, 2)],
-        ['reference', formatNumber(symbol.reference, 2)],
-        ['vwv_z', formatNumber(symbol.vwv_z, 2)],
-        ['velocity_bps', formatNumber(symbol.velocity_bps, 1)],
-        ['layers', formatLayers(symbol.buy_layers_active, symbol.buy_layers_target, symbol.sell_layers_hit)],
-        ['position', toNumber(symbol.position, 0)],
-        ['avg_price', formatNumber(symbol.avg_price, 2)],
-        ['clip_usd', formatNumber(symbol.clip_usd, 0)],
-        ['unrealized', formatNumber(symbol.unrealized, 2)],
-      ];
+      const buyReady = Boolean(symbol.buy_ready);
+      const sellReady = Boolean(symbol.sell_ready);
+      const layersGapValue = Number(symbol.buy_layers_gap);
+      const hasLayerGap = Number.isFinite(layersGapValue) && layersGapValue > 0;
+      const lookingToEnter = Object.prototype.hasOwnProperty.call(symbol, 'looking_to_enter')
+        ? Boolean(symbol.looking_to_enter)
+        : (buyReady || hasLayerGap);
+      const lookingToExit = Object.prototype.hasOwnProperty.call(symbol, 'looking_to_exit')
+        ? Boolean(symbol.looking_to_exit)
+        : sellReady;
 
-      for (const [, value] of columns) {
-        const td = document.createElement('td');
-        td.textContent = value;
-        td.classList.add('numeric');
-        tr.appendChild(td);
+      if (lookingToEnter) tr.classList.add('buy-interest');
+      if (lookingToExit) tr.classList.add('sell-interest');
+      if (buyReady) tr.classList.add('buy-ready-row');
+      if (sellReady) tr.classList.add('sell-ready-row');
+
+      const symbolTd = document.createElement('td');
+      symbolTd.classList.add('symbol-cell');
+      const symbolText = typeof symbol.symbol === 'string' ? symbol.symbol : '—';
+      if (sellReady) {
+        symbolTd.classList.add('symbol-sell');
+      } else if (lookingToEnter) {
+        symbolTd.classList.add('symbol-buy');
       }
+
+      if (sellReady || buyReady || lookingToEnter) {
+        const dot = document.createElement('span');
+        dot.classList.add('signal-dot');
+        if (sellReady) {
+          dot.classList.add('sell');
+        } else if (!buyReady && lookingToEnter) {
+          dot.classList.add('scout');
+        }
+        symbolTd.appendChild(dot);
+      }
+
+      const symbolLabel = document.createElement('span');
+      symbolLabel.textContent = symbolText;
+      symbolTd.appendChild(symbolLabel);
+      tr.appendChild(symbolTd);
+
+      tr.appendChild(createNumericCell(symbol.last, 2));
+      tr.appendChild(createNumericCell(symbol.reference, 2));
+      tr.appendChild(createLevelCell(symbol, 'buy'));
+      tr.appendChild(createLevelCell(symbol, 'sell'));
+      tr.appendChild(createNumericCell(symbol.vwv_z, 2));
+      tr.appendChild(createNumericCell(symbol.velocity_bps, 1));
+
+      const layersTd = document.createElement('td');
+      layersTd.textContent = formatLayers(symbol.buy_layers_active, symbol.buy_layers_target, symbol.sell_layers_hit);
+      layersTd.classList.add('numeric');
+      tr.appendChild(layersTd);
+
+      tr.appendChild(createNumericCell(symbol.position, 0));
+      tr.appendChild(createNumericCell(symbol.avg_price, 2));
+      tr.appendChild(createNumericCell(symbol.clip_usd, 0));
+      tr.appendChild(createNumericCell(symbol.unrealized, 2));
 
       const statusTd = document.createElement('td');
       statusTd.classList.add('status');
 
       const entryBadge = document.createElement('span');
-      const buyReady = Boolean(symbol.buy_ready);
       entryBadge.classList.add('badge', buyReady ? 'entry-true' : 'entry-false');
-      entryBadge.textContent = buyReady ? 'Entry Ready' : 'Entry Waiting';
+      if (buyReady) {
+        entryBadge.textContent = `Entry Ready${hasLayerGap ? ` (+${layersGapValue})` : ''}`;
+      } else if (lookingToEnter) {
+        entryBadge.textContent = `Entry Watching${hasLayerGap ? ` (+${layersGapValue})` : ''}`;
+      } else {
+        entryBadge.textContent = 'Entry Waiting';
+      }
       statusTd.appendChild(entryBadge);
+
+      if (lookingToEnter && !buyReady) {
+        const scoutBadge = document.createElement('span');
+        scoutBadge.classList.add('badge', 'entry-scout');
+        scoutBadge.textContent = 'Price Ladder';
+        statusTd.appendChild(scoutBadge);
+      }
 
       const velocityBadge = document.createElement('span');
       const velocityActive = Boolean(symbol.velocity_active);
@@ -239,7 +531,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       statusTd.appendChild(velocityBadge);
 
       const sellBadge = document.createElement('span');
-      const sellReady = Boolean(symbol.sell_ready);
       sellBadge.classList.add('badge', sellReady ? 'sell-true' : 'sell-false');
       sellBadge.textContent = sellReady ? 'Trim Ready' : 'Trim Waiting';
       statusTd.appendChild(sellBadge);
@@ -253,6 +544,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         updatedLabel.textContent = snapshot && snapshot.updated ? `Updated ${snapshot.updated}` : 'Waiting for snapshot…';
         summaryLabel.textContent = 'No active symbols reported by the bot yet.';
         tableContainer.innerHTML = '<div class="placeholder">No active symbols available yet. Confirm the bot is running in RTH and writing snapshots.</div>';
+        renderConstants(snapshot ? snapshot.constants : null);
         document.title = 'Dronebot Entry Dashboard';
         return;
       }
@@ -260,6 +552,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const updatedText = snapshot.updated ? `Updated ${snapshot.updated}` : 'Snapshot received';
       updatedLabel.textContent = updatedText;
       document.title = `${updatedText} · Dronebot Entry Dashboard`;
+      renderConstants(snapshot.constants);
 
       const fragment = template.content.cloneNode(true);
       const tbody = fragment.querySelector('tbody');
@@ -282,10 +575,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         if (symbol.sell_ready) acc.trimReady += 1;
         if (symbol.velocity_active) acc.velocityActive += 1;
         else if (symbol.velocity_ready) acc.velocityPrimed += 1;
+        if (symbol.looking_to_enter) acc.buyWatching += 1;
         return acc;
-      }, { total: 0, entryReady: 0, trimReady: 0, velocityActive: 0, velocityPrimed: 0 });
+      }, { total: 0, entryReady: 0, trimReady: 0, velocityActive: 0, velocityPrimed: 0, buyWatching: 0 });
 
-      summaryLabel.textContent = `${stats.total} symbol${stats.total === 1 ? '' : 's'} · ${stats.entryReady} entry-ready · ${stats.trimReady} trim-ready · ${stats.velocityActive} velocity-active (${stats.velocityPrimed} primed)`;
+      const watchingOnly = Math.max(0, stats.buyWatching - stats.entryReady);
+      const watchingText = watchingOnly > 0 ? ` (+${watchingOnly} watching)` : '';
+      summaryLabel.textContent = `${stats.total} symbol${stats.total === 1 ? '' : 's'} · ${stats.entryReady} entry-ready${watchingText} · ${stats.trimReady} trim-ready · ${stats.velocityActive} velocity-active (${stats.velocityPrimed} primed)`;
 
       tableContainer.innerHTML = '';
       tableContainer.appendChild(fragment);
@@ -304,6 +600,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         summaryLabel.textContent = 'Snapshot fetch failed.';
         tableContainer.innerHTML = '<div class="placeholder">Unable to load the latest snapshot. The server will keep retrying automatically.</div>';
         updatedLabel.textContent = `Snapshot unavailable (${message}). Retrying…`;
+        renderConstants(null);
         console.error('snapshot fetch error', err);
       } finally {
         window.setTimeout(pollSnapshot, 1500);

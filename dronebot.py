@@ -256,10 +256,31 @@ def _round_or_none(value: Optional[float], digits: int) -> Optional[float]:
         return None
 
 
+def dashboard_constants() -> List[dict]:
+    """Return key risk/velocity constants for the dashboard reminder banner."""
+
+    constants = [
+        ('Velocity Target (bps/s)', f'{VELOCITY_TRIGGER_BPS_PER_SEC:.0f}'),
+        ('Velocity Exit (bps/s)', f'{VELOCITY_EXIT_BPS_PER_SEC:.0f}'),
+        ('Velocity Cooldown (s)', f'{VELOCITY_TRADE_COOLDOWN_SEC:.0f}'),
+        ('Max Velocity Hold (s)', f'{VELOCITY_MAX_HOLD_SEC:.0f}'),
+        ('Buy Cooldown (s)', f'{BUY_COOLDOWN_SEC:.1f}'),
+        ('Trail %', f'{TRAIL_PCT:.2f}'),
+        ('Hard Stop %', f'{HARD_STOP_PCT:.2f}'),
+    ]
+
+    return [
+        {'label': label, 'value': value}
+        for label, value in constants
+        if value is not None
+    ]
+
+
 def write_dashboard_snapshot(records: List[dict], path: str = DASHBOARD_SNAPSHOT_PATH):
     payload = {
         'updated': now_eastern().isoformat(timespec='seconds'),
         'symbols': records,
+        'constants': dashboard_constants(),
     }
     tmp_path = path + '.tmp'
     try:
@@ -959,6 +980,42 @@ def run_live():
 
                         # HUD / logging snapshot
                         u = (last - avg[sym]) * pos[sym] if pos[sym] > 0 and avg[sym] > 0 else 0.0
+                        buy_level_count = len(display_buy_levels)
+                        sell_level_count = len(display_sell_levels)
+
+                        next_buy_idx: Optional[int] = None
+                        if buy_level_count > 0:
+                            next_buy_idx = active_layers
+                            if next_buy_idx >= buy_level_count:
+                                next_buy_idx = buy_level_count - 1
+
+                        next_sell_idx: Optional[int] = None
+                        if sell_level_count > 0:
+                            next_sell_idx = sell_levels_hit
+                            if next_sell_idx >= sell_level_count:
+                                next_sell_idx = sell_level_count - 1
+
+                        next_buy_level = (
+                            display_buy_levels[next_buy_idx]
+                            if (
+                                next_buy_idx is not None
+                                and 0 <= next_buy_idx < buy_level_count
+                            )
+                            else None
+                        )
+
+                        next_sell_level = (
+                            display_sell_levels[next_sell_idx]
+                            if (
+                                next_sell_idx is not None
+                                and 0 <= next_sell_idx < sell_level_count
+                            )
+                            else None
+                        )
+
+                        looking_to_enter = desired_buy_layers > active_layers
+                        looking_to_exit = sell_levels_hit > 0
+
                         snapshot_records.append({
                             'symbol': sym,
                             'last': _round_or_none(last, 4),
@@ -981,6 +1038,15 @@ def run_live():
                             'clip_usd': _round_or_none(clip_usd, 2),
                             'unrealized': _round_or_none(u, 2),
                             'cooldown_ready': bool(cooldown_ready),
+                            'looking_to_enter': bool(looking_to_enter),
+                            'looking_to_exit': bool(looking_to_exit),
+                            'next_buy_level': _round_or_none(next_buy_level, 4),
+                            'next_sell_level': _round_or_none(next_sell_level, 4),
+                            'next_buy_index': int(next_buy_idx) if next_buy_idx is not None else None,
+                            'next_sell_index': int(next_sell_idx) if next_sell_idx is not None else None,
+                            'buy_level_count': buy_level_count,
+                            'sell_level_count': sell_level_count,
+                            'buy_layers_gap': max(0, desired_buy_layers - active_layers),
                         })
                         bl = ','.join(f"{x:.2f}" for x in display_buy_levels)
                         sl = ','.join(f"{x:.2f}" for x in display_sell_levels)
