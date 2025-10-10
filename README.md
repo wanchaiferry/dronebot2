@@ -52,40 +52,40 @@ The tables below show exactly how three different override inputs expand into la
 
 | Rung | Buy % | Buy price | Sell % | Sell price |
 | --- | --- | --- | --- | --- |
-| L1/U1 | 2.250% | $97.75 | 2.250% | $102.25 |
-| L2/U2 | 2.550% | $97.45 | 2.550% | $102.55 |
-| L3/U3 | 2.760% | $97.24 | 2.760% | $102.76 |
+| L1/U1 | 1.125% | $98.88 | 1.125% | $101.12 |
+| L2/U2 | 1.560% | $98.44 | 1.560% | $101.56 |
+| L3/U3 | 2.163% | $97.84 | 2.163% | $102.16 |
 | **L4/U4 (anchor)** | **3.000%** | **$97.00** | **3.000%** | **$103.00** |
-| L5/U5 | 3.240% | $96.76 | 3.240% | $103.24 |
-| L6/U6 | 3.450% | $96.55 | 3.450% | $103.45 |
+| L5/U5 | 3.231% | $96.77 | 3.231% | $103.23 |
+| L6/U6 | 3.480% | $96.52 | 3.480% | $103.48 |
 | L7/U7 | 3.750% | $96.25 | 3.750% | $103.75 |
 
 **Momentum risky (buy=0.60%, sell=0.60%, VWV z=+1.5)**
 
 | Rung | Buy % | Buy price | Sell % | Sell price |
 | --- | --- | --- | --- | --- |
-| L1/U1 | 3.094% | $96.91 | 1.744% | $101.74 |
-| L2/U2 | 3.506% | $96.49 | 1.976% | $101.98 |
-| L3/U3 | 3.795% | $96.21 | 2.139% | $102.14 |
+| L1/U1 | 1.547% | $98.45 | 0.872% | $100.87 |
+| L2/U2 | 2.145% | $97.86 | 1.209% | $101.21 |
+| L3/U3 | 2.974% | $97.03 | 1.676% | $101.68 |
 | **L4/U4 (anchor)** | **4.125%** | **$95.88** | **2.325%** | **$102.33** |
-| L5/U5 | 4.455% | $95.55 | 2.511% | $102.51 |
-| L6/U6 | 4.744% | $95.26 | 2.674% | $102.67 |
+| L5/U5 | 4.443% | $95.56 | 2.504% | $102.50 |
+| L6/U6 | 4.785% | $95.22 | 2.697% | $102.70 |
 | L7/U7 | 5.156% | $94.84 | 2.906% | $102.91 |
 
 **Safe class (buy=0.40%, sell=0.50%, VWV z=0.0)**
 
 | Rung | Buy % | Buy price | Sell % | Sell price |
 | --- | --- | --- | --- | --- |
-| L1/U1 | 0.900% | $99.10 | 1.125% | $101.13 |
-| L2/U2 | 1.020% | $98.98 | 1.275% | $101.28 |
-| L3/U3 | 1.104% | $98.90 | 1.380% | $101.38 |
+| L1/U1 | 0.450% | $99.55 | 0.562% | $100.56 |
+| L2/U2 | 0.624% | $99.38 | 0.780% | $100.78 |
+| L3/U3 | 0.865% | $99.13 | 1.081% | $101.08 |
 | **L4/U4 (anchor)** | **1.200%** | **$98.80** | **1.500%** | **$101.50** |
-| L5/U5 | 1.296% | $98.70 | 1.620% | $101.62 |
-| L6/U6 | 1.380% | $98.62 | 1.725% | $101.73 |
+| L5/U5 | 1.292% | $98.71 | 1.615% | $101.62 |
+| L6/U6 | 1.392% | $98.61 | 1.740% | $101.74 |
 | L7/U7 | 1.500% | $98.50 | 1.875% | $101.88 |
 
 How the numbers fall out:
 
-* **Neutral risky example** – With a risky spread multiplier of 5× and neutral VWV momentum (multiplier 1.0), a 0.60% override produces a 3.00% anchor (`0.60 × 5 × 1.0`). That offset is applied at every rung multiplier so the ladder ranges from 2.25% to 3.75% below/above the reference.【F:dronebot.py†L112-L116】【F:dronebot.py†L885-L899】 
+* **Neutral risky example** – With a risky spread multiplier of 5× and neutral VWV momentum (multiplier 1.0), a 0.60% override produces a 3.00% anchor (`0.60 × 5 × 1.0`). That offset is applied at every rung multiplier so the ladder ranges from 1.125% to 3.75% below/above the reference.【F:dronebot.py†L112-L116】【F:dronebot.py†L885-L899】
 * **Momentum risky example** – A +1.5 VWV z-score bumps the buy multiplier to 1.375 and trims the sell multiplier to 0.775, so the same 0.60% override yields a 4.125% buy anchor and a 2.325% sell anchor before the ladder fan-out.【F:dronebot.py†L867-L909】
 * **Safe-class example** – Safe symbols use the 3× spread multiplier, so 0.40%/0.50% overrides translate into 1.200%/1.500% anchors even without momentum adjustment, producing a tighter ladder around the $100 reference.【F:dronebot.py†L885-L899】
