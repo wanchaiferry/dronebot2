@@ -31,6 +31,18 @@ This repository contains a single Python trading bot that connects to Interactiv
 * `targets.txt` configures ticker classes (`risky` / `safe`), percentage offsets for buys and trims, and optional clip overrides. Global allocations (class fractions and total live equity) can be adjusted via `@config` directives or environment variables. The IB connection parameters (`IB_HOST`, `IB_PORT`, `IB_CID`) accept flexible inputs such as `localhost:4002` or `http://127.0.0.1`; the bot normalizes these into the host/port pair expected by the API and falls back to `127.0.0.1` if the provided hostname cannot be resolved.
 * Executed fills append to `fills_live.csv`, and a running PnL log is written to `pnl_summary_live.csv`. Fatal errors are captured in `bot_errors.log` for troubleshooting.
 
+### Avoiding one-cent whipsaws
+
+If your configuration keeps running into buy-then-instant-sell churn on one-cent spreads, tune the inputs before adding new code:
+
+1. **Widen the base offsets** – Make sure the `buy=` and `sell=` percentages in `targets.txt` translate to ladder anchors that clear the minimum tick by at least two cents once the spread multiplier and VWV momentum multipliers are applied. A 0.05% base on a $50 ticker with a 5× risky multiplier works out to just $0.0125, so bump the base to 0.08–0.10% or move the symbol to the `safe` class to force a 3× multiplier instead of 5×.
+2. **Raise the spread guardrail** – Each class includes a `max_spread` entry. If the live spread routinely flickers between $0.00 and $0.01, drop that threshold to $0.00 for the affected symbol so the entry loop simply skips fills until you see two-plus cents of edge. You can override `max_spread` per ticker inside `targets.txt` by adding `max_spread=0.00` next to the offsets.
+3. **Slow down breakeven trims** – Breakeven and average-price trims check the same spread guard as new entries. If they are firing instantly, consider nudging `avg_px_trim_bp` higher in the global config (e.g., from 4 to 8 bps) so the position has to clear more than a penny before the safety trim kicks in.
+4. **Leverage clip floors** – When the plan is sizing clips at a handful of shares, commission rounding magnifies the impact of a one-cent move. Set `min_clip_usd` to something like $250 so even the smallest rung deploys enough notional that a two-cent wiggle is insignificant.
+5. **Stagger overrides during newsy opens** – For symbols that only get noisy during the first 15 minutes, pre-load a wider override in `dashboard_overrides.json` (or via the entry dashboard) before the bell and tighten it once spreads stabilize. The bot reads overrides each loop, so you can walk the offsets in live without a restart.
+
+Taken together these guardrails add a natural cooldown between corrective trades while still letting momentum-based exits fire when there is meaningful edge. Only reach for code changes after you have exhausted these parameter tweaks.
+
 ## Utilities
 * `init_venv.bat` bootstraps a Windows virtual environment from the repository directory and installs dependencies (`ib_insync`, `pandas`, `numpy`, `python-dateutil`). Run it once after cloning or whenever you need to recreate the `.venv` folder.
 * `dronebot_launcher.bat` is a single Windows entry point that activates the environment and presents an interactive menu for launching the live bot, the entry dashboard, and the pre-session/fill review helpers. Each long-running process opens in its own Command Prompt window with the environment already activated.
