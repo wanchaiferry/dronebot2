@@ -84,6 +84,7 @@ setlocal
   set "DEFAULT_DASH_HOST=%DEFAULT_LOOPBACK_HOST%"
 set "DEFAULT_DASH_PORT=8765"
 set "DEFAULT_SNAPSHOT=dashboard_snapshot.json"
+set "DEFAULT_OVERRIDES=dashboard_overrides.json"
 
 echo === Entry dashboard settings ===
 set "DASH_HOST="
@@ -95,10 +96,13 @@ if "!DASH_PORT!"=="" set "DASH_PORT=%DEFAULT_DASH_PORT%"
 set "SNAPSHOT_PATH="
 set /p "SNAPSHOT_PATH=Snapshot path [%DEFAULT_SNAPSHOT%]: "
 if "!SNAPSHOT_PATH!"=="" set "SNAPSHOT_PATH=%DEFAULT_SNAPSHOT%"
+set "OVERRIDES_PATH="
+set /p "OVERRIDES_PATH=Overrides path [%DEFAULT_OVERRIDES%]: "
+if "!OVERRIDES_PATH!"=="" set "OVERRIDES_PATH=%DEFAULT_OVERRIDES%"
 
 echo.
 echo Launching entry dashboard in a new window...
-start "Entry Dashboard" cmd /k "cd /d "!SCRIPT_DIR!" ^&^& call "!ACTIVATE_BAT!" ^&^& set PYTHONUNBUFFERED=1 ^&^& "!PYTHON_EXE!" "!SCRIPT_DIR!entry_dashboard.py" --host "!DASH_HOST!" --port !DASH_PORT! --snapshot "!SNAPSHOT_PATH!" ^&^& echo. ^&^& pause"
+start "Entry Dashboard" cmd /k "cd /d "!SCRIPT_DIR!" ^&^& call "!ACTIVATE_BAT!" ^&^& set PYTHONUNBUFFERED=1 ^&^& "!PYTHON_EXE!" "!SCRIPT_DIR!dronebot_toolkit.py" dashboard --host "!DASH_HOST!" --port !DASH_PORT! --snapshot "!SNAPSHOT_PATH!" --overrides "!OVERRIDES_PATH!" ^&^& echo. ^&^& pause"
 endlocal
 exit /b 0
 
@@ -111,9 +115,9 @@ if not "!DATE_INPUT!"=="" set "PRE_ARGS=--date !DATE_INPUT!"
 
 echo.
 set PYTHONUNBUFFERED=1
-"%PYTHON_EXE%" "%SCRIPT_DIR%pre_session_anchors.py" !PRE_ARGS!
+"%PYTHON_EXE%" "%SCRIPT_DIR%dronebot_toolkit.py" anchors !PRE_ARGS!
 set "PRE_RET=%ERRORLEVEL%"
-echo === pre_session_anchors exited with code !PRE_RET! ===
+echo === dronebot_toolkit anchors exited with code !PRE_RET! ===
 
 echo.
 set "RUN_ANALYSIS=Y"
@@ -137,9 +141,9 @@ set /p "SYMBOL_INPUT=Symbol to describe immediately (blank to skip): "
 echo.
 set "SYMBOL_ARG="
 if not "!SYMBOL_INPUT!"=="" set "SYMBOL_ARG=--symbol ""!SYMBOL_INPUT!"""
-"%PYTHON_EXE%" "%SCRIPT_DIR%fill_analysis.py" "!FILLS_CSV!" --summary --interactive !SYMBOL_ARG!
+"%PYTHON_EXE%" "%SCRIPT_DIR%dronebot_toolkit.py" fills "!FILLS_CSV!" --summary --interactive !SYMBOL_ARG!
 set "ANALYSIS_RET=%ERRORLEVEL%"
-echo === fill_analysis exited with code !ANALYSIS_RET! ===
+echo === dronebot_toolkit fills exited with code !ANALYSIS_RET! ===
 
 echo.
 :pre_session_done
@@ -169,8 +173,8 @@ if "!SYMBOL!"=="" (
   exit /b 0
 )
 
-"%PYTHON_EXE%" "%SCRIPT_DIR%describe_fills.py" "!FILLS_CSV!" "!SYMBOL!"
-echo === describe_fills exited with code !ERRORLEVEL! ===
+"%PYTHON_EXE%" "%SCRIPT_DIR%dronebot_toolkit.py" describe "!FILLS_CSV!" "!SYMBOL!"
+echo === dronebot_toolkit describe exited with code !ERRORLEVEL! ===
 
 echo.
 pause
@@ -179,19 +183,28 @@ exit /b 0
 
 :ensure_venv
 if exist "%PYTHON_EXE%" exit /b 0
-if not exist "%SCRIPT_DIR%init_venv.bat" (
-  echo Missing init_venv.bat; cannot create virtual environment.
-  exit /b 1
+setlocal
+set "PY_BOOT=python"
+where py >nul 2>nul
+if %errorlevel%==0 (
+  for /f "usebackq tokens=*" %%p in (`py -0p ^| findstr /i "3.13"`) do set "PY_BOOT=py -3.13"
 )
-call "%SCRIPT_DIR%init_venv.bat"
+echo Creating virtual environment with %PY_BOOT%...
+%PY_BOOT% -m venv "%VENV_DIR%"
 if errorlevel 1 (
-  echo init_venv.bat reported an error.
-  exit /b 1
+  echo Failed to create venv with %PY_BOOT%. Trying with 'python'...
+  python -m venv "%VENV_DIR%"
 )
 if not exist "%PYTHON_EXE%" (
   echo Virtual environment creation appears to have failed.
+  endlocal
   exit /b 1
 )
+call "%ACTIVATE_BAT%"
+python -m pip --version >nul 2>nul || python -m ensurepip --upgrade
+python -m pip install --upgrade pip
+python -m pip install ib_insync pandas numpy python-dateutil
+endlocal
 exit /b 0
 
 :finalize

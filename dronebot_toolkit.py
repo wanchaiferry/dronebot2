@@ -1,13 +1,169 @@
-"""Lightweight HTTP dashboard for monitoring dronebot entry conditions."""
+"""Unified CLI for supporting Dronebot operations."""
+
 from __future__ import annotations
 
 import argparse
+import csv
+import datetime as dt
 import json
 import os
 import threading
+from collections import Counter
+from dataclasses import dataclass
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+
+FALLBACK_SNAPSHOT_PATH = os.getenv("DASHBOARD_SNAPSHOT_PATH", "dashboard_snapshot.json")
+FALLBACK_OVERRIDES_PATH = os.getenv("DASHBOARD_OVERRIDES_PATH", "dashboard_overrides.json")
+FALLBACK_TARGETS_PATH = "targets.txt"
+
+_DRONEBOT = None
+
+
+def _load_dronebot():
+    global _DRONEBOT
+    if _DRONEBOT is None:
+        import importlib
+
+        _DRONEBOT = importlib.import_module("dronebot")
+    return _DRONEBOT
+
+
+@dataclass
+class Fill:
+    timestamp: datetime
+    symbol: str
+    side: str
+    quantity: int
+    price: float
+    reason: str
+    realized_pnl: float
+
+    @classmethod
+    def from_row(cls, row: Sequence[str]) -> "Fill":
+        if len(row) != 7:
+            raise ValueError(f"Expected 7 columns per row, received {len(row)}: {row}")
+
+        timestamp = datetime.fromisoformat(row[0])
+        symbol = row[1].strip().upper()
+        side = row[2].strip().upper()
+        quantity = int(row[3])
+        price = float(row[4])
+        reason = row[5].strip()
+        realized_pnl = float(row[6])
+        return cls(timestamp, symbol, side, quantity, price, reason, realized_pnl)
+
+
+def load_fills(path: Path | str) -> List[Fill]:
+    path = Path(path)
+    with path.open(newline="") as f:
+        reader = csv.reader(f)
+        return [Fill.from_row(row) for row in reader if row]
+
+
+def describe_symbol_fills(fills: Iterable[Fill], symbol: str) -> str:
+    symbol = symbol.upper()
+    filtered = [fill for fill in fills if fill.symbol == symbol]
+    if not filtered:
+        return f"No fills found for {symbol}."
+
+    buys = [f for f in filtered if f.side == "BUY"]
+    sells = [f for f in filtered if f.side == "SELL"]
+
+    total_buy_qty = sum(f.quantity for f in buys)
+    total_sell_qty = sum(f.quantity for f in sells)
+    gross_bought = sum(f.quantity * f.price for f in buys)
+    gross_sold = sum(f.quantity * f.price for f in sells)
+
+    avg_buy_price = gross_bought / total_buy_qty if total_buy_qty else 0.0
+    avg_sell_price = gross_sold / total_sell_qty if total_sell_qty else 0.0
+
+    realized_pnl = sum(f.realized_pnl for f in filtered)
+    net_position = total_buy_qty - total_sell_qty
+    net_cash_flow = gross_sold - gross_bought
+
+    reasons = {}
+    for f in filtered:
+        reasons.setdefault(f.reason, 0)
+        reasons[f.reason] += 1
+
+    first_fill = min(filtered, key=lambda f: f.timestamp)
+    last_fill = max(filtered, key=lambda f: f.timestamp)
+
+    lines = [
+        f"Symbol: {symbol}",
+        f"Number of fills: {len(filtered)} (buys: {len(buys)}, sells: {len(sells)})",
+        f"Net position: {net_position} shares",
+        f"Total bought: {total_buy_qty} shares for ${gross_bought:,.2f} (avg ${avg_buy_price:.4f})",
+        f"Total sold: {total_sell_qty} shares for ${gross_sold:,.2f} (avg ${avg_sell_price:.4f})",
+        f"Net cash flow from sells minus buys: ${net_cash_flow:,.2f}",
+        f"Realized PnL (reported): ${realized_pnl:,.2f}",
+        "Fill reasons:",
+    ]
+    for reason, count in sorted(reasons.items(), key=lambda item: (-item[1], item[0])):
+        lines.append(f"  • {reason}: {count}")
+
+    lines.extend(
+        [
+            f"First fill: {first_fill.timestamp.isoformat()} {first_fill.side.lower()} {first_fill.quantity} @ ${first_fill.price}",
+            f"Last fill: {last_fill.timestamp.isoformat()} {last_fill.side.lower()} {last_fill.quantity} @ ${last_fill.price}",
+        ]
+    )
+
+    return "\n".join(lines)
+
+
+def summarize_fills(fills: Sequence[Fill]) -> str:
+    if not fills:
+        return "No fills loaded."
+
+    counts: Counter[str] = Counter()
+    net_positions: Counter[str] = Counter()
+    realized: Counter[str] = Counter()
+    for fill in fills:
+        counts[fill.symbol] += 1
+        delta = fill.quantity if fill.side == "BUY" else -fill.quantity
+        net_positions[fill.symbol] += delta
+        realized[fill.symbol] += fill.realized_pnl
+
+    symbol_width = max(max((len(sym) for sym in counts), default=0), len("Symbol"))
+    total_realized = sum(realized.values())
+    total_net = sum(net_positions.values())
+    total_fills = sum(counts.values())
+
+    lines = [
+        f"{'Symbol':<{symbol_width}}  Fills  NetPos  RealizedPnL",
+        f"{'-' * symbol_width}  -----  ------  ------------",
+    ]
+    for symbol in sorted(counts):
+        lines.append(
+            f"{symbol:<{symbol_width}}  {counts[symbol]:5}  {net_positions[symbol]:6}  ${realized[symbol]:11,.2f}"
+        )
+    lines.append(f"{'-' * symbol_width}  -----  ------  ------------")
+    total_label = 'TOTAL'.ljust(symbol_width)
+    lines.append(f"{total_label}  {total_fills:5}  {total_net:6}  ${total_realized:11,.2f}")
+    return "\n".join(lines)
+
+
+def interactive_symbol_prompt(fills: Sequence[Fill]) -> None:
+    if not fills:
+        print("No fills loaded.")
+        return
+
+    print("Enter a symbol to describe (leave blank to finish).")
+    while True:
+        try:
+            symbol = input("Symbol: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not symbol:
+            break
+        print()
+        print(describe_symbol_fills(fills, symbol))
+        print()
 
 
 _LAST_SNAPSHOT_NOTICE: Tuple[str | None, str | None] = (None, None)
@@ -66,7 +222,7 @@ def update_symbol_override(
     path: Path | None = None,
 ) -> Dict[str, float]:
     symbol_key = symbol.upper()
-    override_path = path or DASHBOARD_OVERRIDES_PATH
+    override_path = Path(path) if path else DASHBOARD_OVERRIDES_PATH
     with _OVERRIDES_LOCK:
         overrides = _read_overrides(override_path)
         entry = overrides.get(symbol_key, {}).copy()
@@ -96,14 +252,14 @@ def _default_snapshot_path() -> Path:
     env_path = os.getenv('DASHBOARD_SNAPSHOT_PATH')
     if env_path:
         return _format_snapshot_path(env_path)
-    return _format_snapshot_path(Path(__file__).with_name('dashboard_snapshot.json'))
+    return _format_snapshot_path(FALLBACK_SNAPSHOT_PATH)
 
 
 def _default_overrides_path() -> Path:
     env_path = os.getenv('DASHBOARD_OVERRIDES_PATH')
     if env_path:
         return _format_snapshot_path(env_path)
-    return _format_snapshot_path(Path(__file__).with_name('dashboard_overrides.json'))
+    return _format_snapshot_path(FALLBACK_OVERRIDES_PATH)
 
 
 DASHBOARD_OVERRIDES_PATH = _default_overrides_path()
@@ -1775,37 +1931,473 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return
 
 
-def main() -> None:
-    default_snapshot = _default_snapshot_path()
-    default_overrides = _default_overrides_path()
-    parser = argparse.ArgumentParser(description='Serve a color dashboard for Dronebot entry conditions.')
-    parser.add_argument('--host', default='127.0.0.1', help='Bind address (default: 127.0.0.1).')
-    parser.add_argument('--port', type=int, default=8765, help='Port to serve on (default: 8765).')
-    parser.add_argument('--snapshot', default=str(default_snapshot), help='Path to the snapshot JSON written by dronebot.')
-    parser.add_argument('--overrides', default=str(default_overrides), help='Path to the dashboard override JSON file (default: alongside snapshot).')
-    args = parser.parse_args()
+ANCHOR_LOOKBACK_DAYS = 5
+ANCHOR_WEIGHTS: Sequence[int] = tuple(range(ANCHOR_LOOKBACK_DAYS, 0, -1))
 
-    DashboardHandler.snapshot_path = _format_snapshot_path(args.snapshot)
-    DashboardHandler.overrides_path = _format_snapshot_path(args.overrides)
+
+def _anchor_index(mults: Sequence[float]) -> int:
+    """Return the index of the rung closest to the blended anchor."""
+
+    if not mults:
+        return 0
+
+    try:
+        return mults.index(1.0)
+    except ValueError:
+        return min(range(len(mults)), key=lambda idx: abs(mults[idx] - 1.0))
+
+
+def _resolve_anchor_idx(mults: Sequence[float], value: Optional[int]) -> int:
+    if isinstance(value, int) and 0 <= value < len(mults):
+        return value
+    return _anchor_index(mults)
+
+
+def eastern_today(tz: dt.tzinfo) -> dt.date:
+    return dt.datetime.now(tz).date()
+
+
+def level_grid(ref: Optional[float], pct: float, mults: List[float], direction: str) -> List[Optional[float]]:
+    if ref is None:
+        return [None for _ in mults]
+    if direction == "down":
+        return [ref * (1.0 - (pct * m) / 100.0) for m in mults]
+    return [ref * (1.0 + (pct * m) / 100.0) for m in mults]
+
+
+def format_price(px: Optional[float]) -> str:
+    if px is None:
+        return "      --"
+    if px >= 100:
+        return f"{px:8.2f}"
+    if px >= 10:
+        return f"{px:8.3f}"
+    return f"{px:8.4f}"
+
+
+def resolve_clip_usd(
+    sym: str,
+    last: Optional[float],
+    rec: Dict[str, object],
+    targets: Dict[str, dict],
+    dynamic_clip: Callable[[str, float, Dict[str, dict]], float],
+) -> Optional[float]:
+    override = rec.get("clip")
+    if override is not None:
+        try:
+            return float(override)
+        except (TypeError, ValueError):
+            pass
+    if last is None:
+        return None
+    try:
+        return dynamic_clip(sym, float(last), targets)
+    except Exception:
+        return None
+
+
+def previous_trading_day(day: dt.date) -> dt.date:
+    prev = day - dt.timedelta(days=1)
+    while prev.weekday() >= 5:  # Saturday/Sunday
+        prev -= dt.timedelta(days=1)
+    return prev
+
+
+def previous_trading_days(day: dt.date, count: int) -> List[dt.date]:
+    days: List[dt.date] = []
+    current = day
+    for _ in range(max(count, 0)):
+        current = previous_trading_day(current)
+        days.append(current)
+    return days
+
+
+def bars_in_window(
+    bars: List[object], start: dt.time, end: dt.time, tz: dt.tzinfo
+) -> List[object]:
+    def eastern_time(bar) -> dt.time:
+        return dt.datetime.fromtimestamp(bar.date.timestamp(), tz).time()
+
+    return [bar for bar in bars if start <= eastern_time(bar) < end]
+
+
+def single_day_anchor(
+    date: dt.date,
+    window_bars: List[object],
+    window_end: dt.time,
+    anchors_from_bars_fn: Callable[[List[object]], Dict[str, Any]],
+    blended_ref_fn: Callable[[dt.datetime, Dict[str, Any], Optional[float]], Optional[float]],
+    tz: dt.tzinfo,
+) -> Optional[float]:
+    if not window_bars:
+        return None
+
+    feats = anchors_from_bars_fn(window_bars)
+    last_close = getattr(window_bars[-1], "close", None)
+    fallback = float(last_close) if last_close is not None else None
+    anchor_time = dt.datetime.combine(date, window_end) - dt.timedelta(minutes=1)
+    anchor_time = anchor_time.replace(tzinfo=tz)
+    ref = (
+        blended_ref_fn(anchor_time, feats, fallback) if (feats or fallback) else fallback
+    )
+    return ref if ref is not None else fallback
+
+
+def anchor_for_window(
+    daily_bars: Sequence[Tuple[dt.date, List[object]]],
+    window_start: dt.time,
+    window_end: dt.time,
+    buy_pct: float,
+    sell_pct: float,
+    spread_class_mult: float,
+    buy_mults: Sequence[float],
+    sell_mults: Sequence[float],
+    buy_anchor_idx: int,
+    sell_anchor_idx: int,
+    anchors_from_bars_fn: Callable[[List[object]], Dict[str, Any]],
+    blended_ref_fn: Callable[[dt.datetime, Dict[str, Any], Optional[float]], Optional[float]],
+    widen_fn: Callable[[
+        Optional[float],
+        Sequence[Optional[float]],
+        str,
+        float,
+        int,
+        float,
+    ], List[Optional[float]]],
+    tz: dt.tzinfo,
+) -> Tuple[Optional[float], List[Optional[float]], List[Optional[float]]]:
+    anchors: List[Tuple[float, int]] = []
+    for weight, (date, bars) in zip(ANCHOR_WEIGHTS, daily_bars):
+        window_bars = bars_in_window(bars, window_start, window_end, tz)
+        ref = single_day_anchor(
+            date,
+            window_bars,
+            window_end,
+            anchors_from_bars_fn,
+            blended_ref_fn,
+            tz,
+        )
+        if ref is not None:
+            anchors.append((ref, weight))
+
+    if anchors:
+        numerator = sum(ref * weight for ref, weight in anchors)
+        denominator = sum(weight for _, weight in anchors)
+        blended = numerator / denominator if denominator else None
+    else:
+        blended = None
+
+    base_buy_levels = level_grid(blended, buy_pct, list(buy_mults), "down")
+    base_sell_levels = level_grid(blended, sell_pct, list(sell_mults), "up")
+
+    # Move the midpoint farther from the reference for display (doubling its
+    # base distance) while stretching the surrounding rungs so their distance
+    # from the original anchor spacing is multiplied by the 5×/3× risk-class
+    # factor.
+    buy_levels = widen_fn(
+        blended,
+        base_buy_levels,
+        "down",
+        spread_class_mult,
+        buy_anchor_idx,
+    )
+    sell_levels = widen_fn(
+        blended,
+        base_sell_levels,
+        "up",
+        spread_class_mult,
+        sell_anchor_idx,
+    )
+    return blended, buy_levels, sell_levels
+
+
+def run_pre_session_anchors(ymd: Optional[str], targets_path: str) -> int:
+    db = _load_dronebot()
+    tz = getattr(db, "TZ")
+    log_fn = getattr(db, "log", None)
+
+    def emit(message: str) -> None:
+        if callable(log_fn):
+            log_fn(message)
+        else:
+            now = dt.datetime.now(tz).strftime("%H:%M:%S")
+            print(f"[{now}] {message}")
+
+    read_targets = db.read_targets
+    fetch_today_minute_bars = db.fetch_today_minute_bars
+    anchors_from_bars_fn = db.anchors_from_bars
+    blended_ref_fn = db.blended_ref
+    dynamic_clip_fn = db.dynamic_clip_usd
+    widen_fn = db.widen_levels_for_display
+    buy_mults = list(getattr(db, "BUY_LADDER_MULTS", []))
+    sell_mults = list(getattr(db, "SELL_LADDER_MULTS", []))
+    if not buy_mults or not sell_mults:
+        emit("Ladder configuration is empty; nothing to do.")
+        return 1
+
+    buy_anchor_idx = _resolve_anchor_idx(
+        buy_mults, getattr(db, "BUY_LADDER_ANCHOR_IDX", None)
+    )
+    sell_anchor_idx = _resolve_anchor_idx(
+        sell_mults, getattr(db, "SELL_LADDER_ANCHOR_IDX", None)
+    )
+    spread_class_mults = getattr(db, "SPREAD_CLASS_MULTS", {})
+    default_spread_mult = float(spread_class_mults.get("risky", 5.0))
+    host = getattr(db, "HOST", "127.0.0.1")
+    port = int(getattr(db, "PORT", 7497))
+    client_base = int(getattr(db, "CLIENT_ID", 21))
+    client_id = int(os.getenv("ANCHORBOT_CLIENT_ID", str(client_base + 900)))
+    windows = (
+        ("AM", getattr(db, "AM_START"), getattr(db, "AM_END")),
+        ("PM", getattr(db, "PM_START"), getattr(db, "PM_END")),
+    )
+
+    targets = read_targets(targets_path)
+    if not targets:
+        emit(f"No tickers found in {targets_path}; nothing to do.")
+        return 1
+
+    session_date = (
+        dt.datetime.strptime(ymd, "%Y-%m-%d").date() if ymd else eastern_today(tz)
+    )
+    lookback_dates = previous_trading_days(session_date, ANCHOR_LOOKBACK_DAYS)
+    if not lookback_dates:
+        emit("Unable to determine lookback trading days; nothing to do.")
+        return 1
+
+    emit(
+        "Fetching AM/PM anchors for %d symbols using %s through %s session data..."
+        % (
+            len(targets),
+            lookback_dates[-1].isoformat(),
+            lookback_dates[0].isoformat(),
+        )
+    )
+
+    from ib_insync import IB
+
+    ib = IB()
+    try:
+        ib.connect(host, port, clientId=client_id, readonly=True)
+    except Exception as exc:
+        emit(f"Failed to connect to IB: {exc}")
+        return 1
+
+    results: List[Dict[str, Any]] = []
+
+    try:
+        for sym in sorted(targets):
+            rec = targets[sym]
+            daily_bars: List[Tuple[dt.date, List[object]]] = []
+            for date in lookback_dates:
+                try:
+                    _contract, bars = fetch_today_minute_bars(
+                        ib, sym, date.strftime("%Y-%m-%d")
+                    )
+                except Exception as exc:
+                    emit(f"{sym}: error fetching bars for {date.isoformat()}: {exc}")
+                    bars = []
+                daily_bars.append((date, bars))
+
+            most_recent_bars = next((bars for _date, bars in daily_bars if bars), [])
+            last = most_recent_bars[-1].close if most_recent_bars else None
+            classification = str(rec.get("class", "risky")).lower()
+            spread_class_mult = spread_class_mults.get(
+                classification, default_spread_mult
+            )
+            base_buy_pct = max(0.1, float(rec.get("buy", 2.0)))
+            base_sell_pct = max(0.1, float(rec.get("sell", 1.5)))
+            buy_pct = base_buy_pct * spread_class_mult
+            sell_pct = base_sell_pct * spread_class_mult
+            clip_usd = resolve_clip_usd(sym, last, rec, targets, dynamic_clip_fn)
+            shares = int(round((clip_usd or 0) / last)) if clip_usd and last else None
+
+            window_rows = {}
+            for label, start, end in windows:
+                ref, buy_levels, sell_levels = anchor_for_window(
+                    daily_bars,
+                    start,
+                    end,
+                    buy_pct,
+                    sell_pct,
+                    spread_class_mult,
+                    buy_mults,
+                    sell_mults,
+                    buy_anchor_idx,
+                    sell_anchor_idx,
+                    anchors_from_bars_fn,
+                    blended_ref_fn,
+                    widen_fn,
+                    tz,
+                )
+                window_rows[label] = {
+                    "anchor": ref,
+                    "buy_levels": buy_levels,
+                    "sell_levels": sell_levels,
+                }
+
+            results.append(
+                {
+                    "sym": sym,
+                    "class": rec.get("class", "risky"),
+                    "last": last,
+                    "windows": window_rows,
+                    "clip_usd": clip_usd,
+                    "shares": shares,
+                }
+            )
+    finally:
+        ib.disconnect()
+
+    headers = ["SYM", "CLASS", "LAST"]
+    buy_count = len(buy_mults)
+    sell_count = len(sell_mults)
+    for label, _, _ in windows:
+        headers.append(f"{label}_ANC")
+        headers.extend(f"{label}_L{idx+1}" for idx in range(buy_count))
+        headers.extend(f"{label}_U{idx+1}" for idx in range(sell_count))
+    headers.extend(["CLIP$", "CLIP SH"])
+    print("\n" + " ".join(f"{h:>8}" for h in headers))
+    print("-" * (9 * len(headers)))
+
+    for row in results:
+        line = [
+            f"{row['sym']:>8}",
+            f"{row['class']:>8}",
+            format_price(row["last"]),
+        ]
+
+        for label, _, _ in windows:
+            window = row["windows"].get(label, {})
+            line.append(format_price(window.get("anchor")))
+            line.extend(format_price(px) for px in window.get("buy_levels", []))
+            line.extend(format_price(px) for px in window.get("sell_levels", []))
+
+        line.extend(
+            [
+                f"{row['clip_usd']:8.0f}" if row["clip_usd"] else "      --",
+                f"{row['shares']:8d}" if row["shares"] else "      --",
+            ]
+        )
+        print(" ".join(line))
+
+    return 0
+
+
+def _load_fills_from_args(csv_path: Path) -> List[Fill]:
+    csv_path = csv_path.expanduser()
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Could not find fills CSV at '{csv_path}'.")
+    fills = load_fills(csv_path)
+    print(f"Loaded {len(fills)} fills from {csv_path}")
+    print()
+    return fills
+
+
+def _cmd_fills(args: argparse.Namespace) -> int:
+    try:
+        fills = _load_fills_from_args(Path(args.csv))
+    except FileNotFoundError as exc:
+        print(exc)
+        return 1
+
+    printed = False
+    if args.summary:
+        print(summarize_fills(fills))
+        print()
+        printed = True
+
+    if args.symbol:
+        print(describe_symbol_fills(fills, args.symbol))
+        print()
+        printed = True
+
+    if args.interactive:
+        interactive_symbol_prompt(fills)
+        printed = True
+
+    if not printed:
+        print(summarize_fills(fills))
+
+    return 0
+
+
+def _cmd_describe(args: argparse.Namespace) -> int:
+    try:
+        fills = _load_fills_from_args(Path(args.csv))
+    except FileNotFoundError as exc:
+        print(exc)
+        return 1
+    print(describe_symbol_fills(fills, args.symbol))
+    return 0
+
+
+def _cmd_dashboard(args: argparse.Namespace) -> int:
+    snapshot = _format_snapshot_path(args.snapshot or FALLBACK_SNAPSHOT_PATH)
+    overrides = _format_snapshot_path(args.overrides or FALLBACK_OVERRIDES_PATH)
+    DashboardHandler.snapshot_path = snapshot
+    DashboardHandler.overrides_path = overrides
     global DASHBOARD_OVERRIDES_PATH
-    DASHBOARD_OVERRIDES_PATH = DashboardHandler.overrides_path
+    DASHBOARD_OVERRIDES_PATH = overrides
     server = ThreadingHTTPServer((args.host, args.port), DashboardHandler)
     server.daemon_threads = True
     print(
         "Serving dashboard on http://{host}:{port} (snapshot: {snap}, overrides: {over})".format(
-            host=args.host,
-            port=args.port,
-            snap=DashboardHandler.snapshot_path,
-            over=DashboardHandler.overrides_path,
+            host=args.host, port=args.port, snap=snapshot, over=overrides
         )
     )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print('\nStopping dashboard server…')
+        print("\nStopping dashboard server…")
     finally:
         server.server_close()
+    return 0
 
 
-if __name__ == '__main__':
-    main()
+def _cmd_anchors(args: argparse.Namespace) -> int:
+    return run_pre_session_anchors(args.date, args.targets)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Dronebot toolkit CLI.")
+    subparsers = parser.add_subparsers(dest="command")
+
+    fills_parser = subparsers.add_parser("fills", help="Summarize fills from a CSV file.")
+    fills_parser.add_argument("csv", nargs='?', default='fills_live.csv', help="Path to fills CSV.")
+    fills_parser.add_argument("--symbol", help="Describe a single symbol.")
+    fills_parser.add_argument("--summary", action="store_true", help="Print a per-symbol summary.")
+    fills_parser.add_argument("--interactive", action="store_true", help="Prompt for multiple symbols.")
+    fills_parser.set_defaults(func=_cmd_fills)
+
+    describe_parser = subparsers.add_parser("describe", help="Describe fills for a single symbol.")
+    describe_parser.add_argument("csv", help="Path to fills CSV.")
+    describe_parser.add_argument("symbol", help="Ticker to describe.")
+    describe_parser.set_defaults(func=_cmd_describe)
+
+    dash_parser = subparsers.add_parser("dashboard", help="Serve the entry dashboard.")
+    dash_parser.add_argument("--host", default='127.0.0.1', help="Bind address.")
+    dash_parser.add_argument("--port", type=int, default=8765, help="Port to serve on.")
+    dash_parser.add_argument("--snapshot", default=str(FALLBACK_SNAPSHOT_PATH), help="Snapshot JSON path.")
+    dash_parser.add_argument("--overrides", default=str(FALLBACK_OVERRIDES_PATH), help="Overrides JSON path.")
+    dash_parser.set_defaults(func=_cmd_dashboard)
+
+    anchors_parser = subparsers.add_parser("anchors", help="Preview pre-session anchors.")
+    anchors_parser.add_argument("--date", help="Override the session date (YYYY-MM-DD).")
+    anchors_parser.add_argument("--targets", default=FALLBACK_TARGETS_PATH, help="Path to targets.txt.")
+    anchors_parser.set_defaults(func=_cmd_anchors)
+
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not getattr(args, "func", None):
+        parser.print_help()
+        return 0
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
