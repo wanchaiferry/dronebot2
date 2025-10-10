@@ -41,8 +41,16 @@ def _normalize_ib_endpoint() -> Tuple[str, int]:
             host = parsed.hostname
         elif parsed.path:
             host = parsed.path.lstrip('/') or host
-        if parsed.port is not None:
-            port = parsed.port
+        try:
+            parsed_port = parsed.port
+        except ValueError:
+            print(
+                f"Invalid port in IB_HOST '{raw_host}'. Using {port} instead.",
+                flush=True,
+            )
+        else:
+            if parsed_port is not None:
+                port = parsed_port
 
     if raw_port:
         try:
