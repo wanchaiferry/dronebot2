@@ -650,7 +650,9 @@ def run_live():
                     if in_rth:
                         log("Within regular trading hours; core logic enabled.")
                     else:
-                        log("Outside regular trading hours; idling until market reopens.")
+                        log(
+                            "Outside regular trading hours; trading disabled but continuing to stream."
+                        )
                     was_in_rth = in_rth
 
                 # --- SYNC LIVE POSITIONS FROM IB ---
@@ -684,9 +686,7 @@ def run_live():
                 except Exception as e:
                     log_error(f"position sync error: {e}")
 
-                if not in_rth:
-                    # idle off-session, but keep running
-                    continue
+                can_trade = in_rth
 
                 pnl_rows=[]
                 snapshot_records: List[dict] = []
@@ -781,7 +781,8 @@ def run_live():
                         buy_cooldown_ready = now_ts - last_buy_time[sym] >= BUY_COOLDOWN_SEC
                         velocity_ready = now_ts - velocity_last_trigger[sym] >= VELOCITY_TRADE_COOLDOWN_SEC
                         if (
-                            buy_cooldown_ready
+                            can_trade
+                            and buy_cooldown_ready
                             and velocity_ready
                             and buy_momentum_ok
                             and vel >= VELOCITY_TRIGGER_BPS_PER_SEC
@@ -828,7 +829,8 @@ def run_live():
                         # ENTRY (never create short; pos>=0 is enforced by sync)
                         cooldown_ready = buy_cooldown_ready
                         if (
-                            cooldown_ready
+                            can_trade
+                            and cooldown_ready
                             and buy_momentum_ok
                             and desired_buy_layers > active_layers
                         ):
@@ -850,7 +852,7 @@ def run_live():
                         velocity_active = (
                             velocity_active_until[sym] > now_ts and pos[sym] > 0
                         )
-                        if velocity_active and vel <= -VELOCITY_EXIT_BPS_PER_SEC:
+                        if can_trade and velocity_active and vel <= -VELOCITY_EXIT_BPS_PER_SEC:
                             qty = pos[sym]
                             if qty > 0:
                                 px, filled = place_ioc_sell(
@@ -866,7 +868,7 @@ def run_live():
                                         trail_hi[sym] = 0.0
                                         velocity_active_until[sym] = 0.0
 
-                        if velocity_active and now_ts >= velocity_active_until[sym]:
+                        if can_trade and velocity_active and now_ts >= velocity_active_until[sym]:
                             qty = pos[sym]
                             if qty > 0:
                                 px, filled = place_ioc_sell(
@@ -887,7 +889,7 @@ def run_live():
                         )
 
                         # LADDER TRIMS (reduce layers as price rallies)
-                        if pos[sym] > 0 and sell_momentum_ok:
+                        if can_trade and pos[sym] > 0 and sell_momentum_ok:
                             levels_hit = sell_levels_hit
                             target_layers_after = max(0, active_layers - levels_hit)
                             if target_layers_after < active_layers:
@@ -910,7 +912,7 @@ def run_live():
                                             velocity_active_until[sym] = 0.0
 
                         # BREAKEVEN TRIM (optional): if price >= avg, trim a fraction
-                        if pos[sym]>0 and avg[sym]>0 and sell_momentum_ok:
+                        if can_trade and pos[sym]>0 and avg[sym]>0 and sell_momentum_ok:
                             upnl_bp = (last/avg[sym]-1.0)*10000.0
                             if upnl_bp >= BREAKEVEN_MIN_UPNL_BP and last >= avg[sym]:
                                 qty = max(1, int(pos[sym]*BREAKEVEN_TRIM_FRACTION))
@@ -923,7 +925,12 @@ def run_live():
                                         avg[sym]=0.0; trail_hi[sym]=0.0; velocity_active_until[sym]=0.0
 
                         # HARD STOP
-                        if pos[sym]>0 and avg[sym]>0 and last <= avg[sym]*(1 - HARD_STOP_PCT/100.0):
+                        if (
+                            can_trade
+                            and pos[sym]>0
+                            and avg[sym]>0
+                            and last <= avg[sym]*(1 - HARD_STOP_PCT/100.0)
+                        ):
                             qty=pos[sym]
                             px, filled = place_ioc_sell(ib, c, qty, bid, last, urgency='urgent')
                             if filled > 0 and px is not None:
@@ -940,7 +947,7 @@ def run_live():
                             if velocity_active:
                                 trail_pct = min(TRAIL_PCT, VELOCITY_TRAIL_PCT)
                             trail_level = trail_hi[sym]*(1 - trail_pct/100.0)
-                            if last <= trail_level and last>0:
+                            if can_trade and last <= trail_level and last>0:
                                 qty=pos[sym]
                                 px, filled = place_ioc_sell(ib, c, qty, bid, last, urgency='urgent')
                                 if filled > 0 and px is not None:
