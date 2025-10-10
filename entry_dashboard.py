@@ -4,7 +4,28 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Tuple
+
+
+_LAST_SNAPSHOT_NOTICE: Tuple[str | None, str | None] = (None, None)
+
+
+def _format_snapshot_path(candidate: str | os.PathLike[str]) -> Path:
+    path = Path(candidate).expanduser()
+    try:
+        return path.resolve()
+    except OSError:
+        # Fall back to the expanded path if resolve() fails (e.g. missing parents).
+        return path
+
+
+def _default_snapshot_path() -> Path:
+    env_path = os.getenv('DASHBOARD_SNAPSHOT_PATH')
+    if env_path:
+        return _format_snapshot_path(env_path)
+    return _format_snapshot_path(Path(__file__).with_name('dashboard_snapshot.json'))
 
 DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang=\"en\">
@@ -31,9 +52,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       letter-spacing: 0.04em;
     }
     .updated {
-      margin-bottom: 16px;
+      margin-bottom: 8px;
       font-size: 0.9rem;
       color: #94a3b8;
+    }
+    .summary {
+      margin-bottom: 20px;
+      font-size: 0.95rem;
+      color: #cbd5f5;
     }
     table {
       width: 100%;
@@ -119,6 +145,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <body>
   <h1>Dronebot Entry Dashboard</h1>
   <div class=\"updated\" id=\"updated\">Waiting for snapshot…</div>
+  <div class=\"summary\" id=\"summary\">No symbols loaded yet.</div>
   <div id=\"table-container\"></div>
   <template id=\"table-template\">
     <table>
@@ -143,13 +170,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <script>
     const tableContainer = document.getElementById('table-container');
     const updatedLabel = document.getElementById('updated');
+    const summaryLabel = document.getElementById('summary');
     const template = document.getElementById('table-template');
 
     function formatNumber(value, fractionDigits = 2) {
       if (value === null || value === undefined) {
         return '—';
       }
-      return Number(value).toFixed(fractionDigits);
+      const num = Number(value);
+      if (!Number.isFinite(num)) {
+        return '—';
+      }
+      return num.toLocaleString(undefined, {
+        minimumFractionDigits: fractionDigits,
+        maximumFractionDigits: fractionDigits,
+      });
     }
 
     function toNumber(value, fallback = 0) {
@@ -168,7 +203,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const tr = document.createElement('tr');
 
       const columns = [
-        ['symbol', symbol.symbol],
+        ['symbol', symbol.symbol ?? '—'],
         ['last', formatNumber(symbol.last, 2)],
         ['reference', formatNumber(symbol.reference, 2)],
         ['vwv_z', formatNumber(symbol.vwv_z, 2)],
@@ -191,18 +226,22 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       statusTd.classList.add('status');
 
       const entryBadge = document.createElement('span');
-      entryBadge.classList.add('badge', symbol.buy_ready ? 'entry-true' : 'entry-false');
-      entryBadge.textContent = symbol.buy_ready ? 'Entry Ready' : 'Entry Waiting';
+      const buyReady = Boolean(symbol.buy_ready);
+      entryBadge.classList.add('badge', buyReady ? 'entry-true' : 'entry-false');
+      entryBadge.textContent = buyReady ? 'Entry Ready' : 'Entry Waiting';
       statusTd.appendChild(entryBadge);
 
       const velocityBadge = document.createElement('span');
-      velocityBadge.classList.add('badge', symbol.velocity_active || symbol.velocity_ready ? 'velocity-true' : 'velocity-false');
-      velocityBadge.textContent = symbol.velocity_active ? 'Velocity Active' : (symbol.velocity_ready ? 'Velocity Ready' : 'Velocity Cooldown');
+      const velocityActive = Boolean(symbol.velocity_active);
+      const velocityReady = Boolean(symbol.velocity_ready);
+      velocityBadge.classList.add('badge', (velocityActive || velocityReady) ? 'velocity-true' : 'velocity-false');
+      velocityBadge.textContent = velocityActive ? 'Velocity Active' : (velocityReady ? 'Velocity Ready' : 'Velocity Cooldown');
       statusTd.appendChild(velocityBadge);
 
       const sellBadge = document.createElement('span');
-      sellBadge.classList.add('badge', symbol.sell_ready ? 'sell-true' : 'sell-false');
-      sellBadge.textContent = symbol.sell_ready ? 'Trim Ready' : 'Trim Waiting';
+      const sellReady = Boolean(symbol.sell_ready);
+      sellBadge.classList.add('badge', sellReady ? 'sell-true' : 'sell-false');
+      sellBadge.textContent = sellReady ? 'Trim Ready' : 'Trim Waiting';
       statusTd.appendChild(sellBadge);
 
       tr.appendChild(statusTd);
@@ -212,19 +251,42 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     function renderSnapshot(snapshot) {
       if (!snapshot || !Array.isArray(snapshot.symbols) || snapshot.symbols.length === 0) {
         updatedLabel.textContent = snapshot && snapshot.updated ? `Updated ${snapshot.updated}` : 'Waiting for snapshot…';
+        summaryLabel.textContent = 'No active symbols reported by the bot yet.';
         tableContainer.innerHTML = '<div class="placeholder">No active symbols available yet. Confirm the bot is running in RTH and writing snapshots.</div>';
+        document.title = 'Dronebot Entry Dashboard';
         return;
       }
 
-      updatedLabel.textContent = `Updated ${snapshot.updated}`;
+      const updatedText = snapshot.updated ? `Updated ${snapshot.updated}` : 'Snapshot received';
+      updatedLabel.textContent = updatedText;
+      document.title = `${updatedText} · Dronebot Entry Dashboard`;
+
       const fragment = template.content.cloneNode(true);
       const tbody = fragment.querySelector('tbody');
 
-      const rows = [...snapshot.symbols];
+      const rows = snapshot.symbols
+        .filter((symbol) => symbol && typeof symbol === 'object')
+        .map((symbol) => ({
+          ...symbol,
+          symbol: typeof symbol.symbol === 'string' ? symbol.symbol : '—',
+        }));
+
       rows.sort((a, b) => a.symbol.localeCompare(b.symbol));
       for (const symbol of rows) {
         tbody.appendChild(buildRow(symbol));
       }
+
+      const stats = rows.reduce((acc, symbol) => {
+        acc.total += 1;
+        if (symbol.buy_ready) acc.entryReady += 1;
+        if (symbol.sell_ready) acc.trimReady += 1;
+        if (symbol.velocity_active) acc.velocityActive += 1;
+        else if (symbol.velocity_ready) acc.velocityPrimed += 1;
+        return acc;
+      }, { total: 0, entryReady: 0, trimReady: 0, velocityActive: 0, velocityPrimed: 0 });
+
+      summaryLabel.textContent = `${stats.total} symbol${stats.total === 1 ? '' : 's'} · ${stats.entryReady} entry-ready · ${stats.trimReady} trim-ready · ${stats.velocityActive} velocity-active (${stats.velocityPrimed} primed)`;
+
       tableContainer.innerHTML = '';
       tableContainer.appendChild(fragment);
     }
@@ -238,7 +300,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         const data = await res.json();
         renderSnapshot(data);
       } catch (err) {
-        updatedLabel.textContent = `Snapshot unavailable (${err.message}). Retrying…`;
+        const message = err && err.message ? err.message : 'Unknown error';
+        summaryLabel.textContent = 'Snapshot fetch failed.';
+        tableContainer.innerHTML = '<div class="placeholder">Unable to load the latest snapshot. The server will keep retrying automatically.</div>';
+        updatedLabel.textContent = `Snapshot unavailable (${message}). Retrying…`;
+        console.error('snapshot fetch error', err);
       } finally {
         window.setTimeout(pollSnapshot, 1500);
       }
@@ -251,19 +317,32 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 """
 
 
-def load_snapshot(path: str) -> dict:
-    if not os.path.exists(path):
-        return {'updated': None, 'symbols': []}
+def load_snapshot(path: Path) -> dict:
+    global _LAST_SNAPSHOT_NOTICE
     try:
-        with open(path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except json.JSONDecodeError:
-        # Partial write; serve empty payload to avoid breaking the dashboard.
+        with path.open('r', encoding='utf-8') as f:
+            payload = json.load(f)
+    except FileNotFoundError:
+        notice = ('missing', str(path))
+        if notice != _LAST_SNAPSHOT_NOTICE:
+            print(f'Waiting for snapshot file at {path}…')
+            _LAST_SNAPSHOT_NOTICE = notice
         return {'updated': None, 'symbols': []}
+    except json.JSONDecodeError as exc:
+        notice = ('decode', str(path))
+        if notice != _LAST_SNAPSHOT_NOTICE:
+            print(f'Snapshot file {path} is not valid JSON yet ({exc}). Serving placeholder…')
+            _LAST_SNAPSHOT_NOTICE = notice
+        return {'updated': None, 'symbols': []}
+    else:
+        if _LAST_SNAPSHOT_NOTICE != (None, None):
+            _LAST_SNAPSHOT_NOTICE = (None, None)
+            print(f'Snapshot at {path} loaded successfully.')
+        return payload
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
-    snapshot_path: str = 'dashboard_snapshot.json'
+    snapshot_path: Path = _default_snapshot_path()
 
     def _send_response(self, status: int, content: bytes, content_type: str = 'text/html; charset=utf-8') -> None:
         self.send_response(status)
@@ -282,6 +361,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             body = json.dumps(payload).encode('utf-8')
             self._send_response(200, body, 'application/json; charset=utf-8')
             return
+        if self.path == '/healthz':
+            self._send_response(200, b'OK', 'text/plain; charset=utf-8')
+            return
 
         self.send_error(404, 'Not Found')
 
@@ -291,15 +373,17 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    default_snapshot = _default_snapshot_path()
     parser = argparse.ArgumentParser(description='Serve a color dashboard for Dronebot entry conditions.')
     parser.add_argument('--host', default='127.0.0.1', help='Bind address (default: 127.0.0.1).')
     parser.add_argument('--port', type=int, default=8765, help='Port to serve on (default: 8765).')
-    parser.add_argument('--snapshot', default='dashboard_snapshot.json', help='Path to the snapshot JSON written by dronebot.')
+    parser.add_argument('--snapshot', default=str(default_snapshot), help='Path to the snapshot JSON written by dronebot.')
     args = parser.parse_args()
 
-    DashboardHandler.snapshot_path = args.snapshot
+    DashboardHandler.snapshot_path = _format_snapshot_path(args.snapshot)
     server = ThreadingHTTPServer((args.host, args.port), DashboardHandler)
-    print(f"Serving dashboard on http://{args.host}:{args.port} (snapshot: {args.snapshot})")
+    server.daemon_threads = True
+    print(f"Serving dashboard on http://{args.host}:{args.port} (snapshot: {DashboardHandler.snapshot_path})")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

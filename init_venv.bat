@@ -1,6 +1,7 @@
 @echo off
 REM init_venv.bat — run once inside D:\dronebot
 setlocal
+cd /d %~dp0
 set PY_EXE=python
 
 where py >nul 2>nul
