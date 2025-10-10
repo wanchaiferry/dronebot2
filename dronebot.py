@@ -899,7 +899,7 @@ def run_live():
                             'vwv_z': _round_or_none(z, 2),
                             'velocity_bps': _round_or_none(vel, 1),
                             'buy_ready': bool(
-                                cooldown_ready
+                                buy_cooldown_ready
                                 and buy_momentum_ok
                                 and desired_buy_layers > active_layers
                             ),
@@ -913,7 +913,7 @@ def run_live():
                             'avg_price': _round_or_none(avg[sym], 4),
                             'clip_usd': _round_or_none(clip_usd, 2),
                             'unrealized': _round_or_none(u, 2),
-                            'cooldown_ready': bool(cooldown_ready),
+                            'cooldown_ready': bool(buy_cooldown_ready),
                         })
                         bl = ','.join(f"{x:.2f}" for x in display_buy_levels)
                         sl = ','.join(f"{x:.2f}" for x in display_sell_levels)
