@@ -4,12 +4,83 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Tuple
+from typing import Any, Dict, Tuple
 
 
 _LAST_SNAPSHOT_NOTICE: Tuple[str | None, str | None] = (None, None)
+
+_OVERRIDES_LOCK = threading.Lock()
+
+
+def _read_overrides(path: Path) -> Dict[str, Dict[str, float]]:
+    try:
+        with path.open('r', encoding='utf-8') as f:
+            raw = json.load(f)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError as exc:
+        print(f'Override file {path} is not valid JSON ({exc}). Ignoring contents.')
+        return {}
+    except OSError as exc:
+        print(f'Unable to read override file {path}: {exc}.')
+        return {}
+
+    if not isinstance(raw, dict):
+        return {}
+
+    overrides: Dict[str, Dict[str, float]] = {}
+    for sym, payload in raw.items():
+        if not isinstance(payload, dict):
+            continue
+        entry: Dict[str, float] = {}
+        try:
+            if 'buy' in payload:
+                entry['buy'] = max(0.05, float(payload['buy']))
+        except (TypeError, ValueError):
+            pass
+        try:
+            if 'sell' in payload:
+                entry['sell'] = max(0.05, float(payload['sell']))
+        except (TypeError, ValueError):
+            pass
+        if entry:
+            overrides[str(sym).upper()] = entry
+    return overrides
+
+
+def _write_overrides(path: Path, overrides: Dict[str, Dict[str, float]]) -> None:
+    tmp_path = path.with_suffix(path.suffix + '.tmp')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tmp_path.open('w', encoding='utf-8') as f:
+        json.dump(overrides, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, path)
+
+
+def update_symbol_override(
+    symbol: str,
+    buy: float | None,
+    sell: float | None,
+    path: Path | None = None,
+) -> Dict[str, float]:
+    symbol_key = symbol.upper()
+    override_path = path or DASHBOARD_OVERRIDES_PATH
+    with _OVERRIDES_LOCK:
+        overrides = _read_overrides(override_path)
+        entry = overrides.get(symbol_key, {}).copy()
+        if buy is not None:
+            entry['buy'] = max(0.05, float(buy))
+        if sell is not None:
+            entry['sell'] = max(0.05, float(sell))
+        entry = {k: v for k, v in entry.items() if v is not None}
+        if entry:
+            overrides[symbol_key] = entry
+        elif symbol_key in overrides:
+            overrides.pop(symbol_key, None)
+        _write_overrides(override_path, overrides)
+        return overrides.get(symbol_key, {})
 
 
 def _format_snapshot_path(candidate: str | os.PathLike[str]) -> Path:
@@ -26,6 +97,16 @@ def _default_snapshot_path() -> Path:
     if env_path:
         return _format_snapshot_path(env_path)
     return _format_snapshot_path(Path(__file__).with_name('dashboard_snapshot.json'))
+
+
+def _default_overrides_path() -> Path:
+    env_path = os.getenv('DASHBOARD_OVERRIDES_PATH')
+    if env_path:
+        return _format_snapshot_path(env_path)
+    return _format_snapshot_path(Path(__file__).with_name('dashboard_overrides.json'))
+
+
+DASHBOARD_OVERRIDES_PATH = _default_overrides_path()
 
 DASHBOARD_HTML = """<!DOCTYPE html>
 <html lang=\"en\">
@@ -247,6 +328,45 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       font-size: 0.75rem;
       opacity: 0.85;
     }
+    .slider-cell {
+      min-width: 180px;
+    }
+    .slider-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .slider-value {
+      font-size: 0.85rem;
+      letter-spacing: 0.04em;
+      color: #f8fafc;
+      text-shadow: 0 0 6px rgba(59,130,246,0.35);
+    }
+    .slider-value.buy {
+      color: #fecaca;
+      text-shadow: 0 0 8px rgba(248,113,113,0.45);
+    }
+    .slider-value.sell {
+      color: #bbf7d0;
+      text-shadow: 0 0 8px rgba(34,197,94,0.45);
+    }
+    .slider-input {
+      width: 100%;
+      accent-color: #38bdf8;
+      cursor: pointer;
+    }
+    .slider-input.buy {
+      accent-color: #f87171;
+    }
+    .slider-input.sell {
+      accent-color: #34d399;
+    }
+    .slider-status {
+      font-size: 0.7rem;
+      color: #94a3b8;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
     .placeholder {
       padding: 32px;
       text-align: center;
@@ -270,6 +390,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <th>Reference</th>
           <th>Next Buy</th>
           <th>Next Sell</th>
+          <th>Buy %</th>
+          <th>Sell %</th>
           <th>VWV Z</th>
           <th>Velocity</th>
           <th>Layers</th>
@@ -344,8 +466,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       if (typeof count !== 'number' || !Number.isFinite(count) || count <= 0) {
         return;
       }
-      const ratio = Math.min(1, Math.max(0, (index + 1) / count));
-      const baseAlpha = 0.12 + 0.32 * ratio;
+      const safeCount = Math.max(1, count);
+      let ratio;
+      if (type === 'buy') {
+        ratio = 1 - Math.min(1, Math.max(0, index / safeCount));
+      } else {
+        ratio = Math.min(1, Math.max(0, (index + 1) / safeCount));
+      }
+      const baseAlpha = 0.16 + 0.36 * ratio;
       if (type === 'buy') {
         td.style.backgroundColor = `rgba(248, 113, 113, ${baseAlpha.toFixed(3)})`;
         td.style.color = ratio > 0.55 ? '#450a0a' : '#fee2e2';
@@ -397,6 +525,217 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       }
 
       applyLevelStyling(td, type, index, count);
+      return td;
+    }
+
+    const sliderState = new Map();
+    const sliderTimers = new Map();
+    const sliderRanges = {
+      buy: { min: 0.25, max: 8, step: 0.05 },
+      sell: { min: 0.25, max: 8, step: 0.05 },
+    };
+
+    function styleSliderTrack(input, type, value) {
+      if (!input) {
+        return;
+      }
+      const min = Number(input.min);
+      const max = Number(input.max);
+      if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) {
+        input.style.background = '';
+        return;
+      }
+      const clamped = Math.min(1, Math.max(0, (Number(value) - min) / (max - min)));
+      const stop = `${(clamped * 100).toFixed(2)}%`;
+      if (type === 'buy') {
+        const intensity = 0.35 + 0.55 * (1 - clamped);
+        input.style.background = `linear-gradient(90deg, rgba(248,113,113,${intensity.toFixed(3)}) ${stop}, rgba(15,23,42,0.65) ${stop})`;
+      } else {
+        const intensity = 0.28 + 0.6 * clamped;
+        input.style.background = `linear-gradient(90deg, rgba(34,197,94,${intensity.toFixed(3)}) ${stop}, rgba(15,23,42,0.65) ${stop})`;
+      }
+    }
+
+    function ensureSliderState(symbol, defaults) {
+      let state = sliderState.get(symbol);
+      if (!state) {
+        state = { ...defaults, dom: {} };
+        sliderState.set(symbol, state);
+        return state;
+      }
+      if (!Number.isFinite(state.buy_pct)) {
+        state.buy_pct = defaults.buy_pct;
+      }
+      if (!Number.isFinite(state.sell_pct)) {
+        state.sell_pct = defaults.sell_pct;
+      }
+      return state;
+    }
+
+    async function pushOverride(symbol) {
+      const state = sliderState.get(symbol);
+      if (!state) {
+        return;
+      }
+      const payload = { symbol };
+      if (Number.isFinite(state.buy_pct)) {
+        payload.buy_pct = Number(state.buy_pct);
+      }
+      if (Number.isFinite(state.sell_pct)) {
+        payload.sell_pct = Number(state.sell_pct);
+      }
+      if (payload.buy_pct === undefined && payload.sell_pct === undefined) {
+        state.pending = false;
+        return;
+      }
+
+      try {
+        const res = await fetch('adjust', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const responseData = await res.json().catch(() => ({}));
+        const hasOverride = Boolean(
+          responseData && responseData.overrides && Object.keys(responseData.overrides).length
+        );
+        state.pending = false;
+        state.lastSync = Date.now();
+        state.overrideActive = hasOverride;
+        if (state.dom) {
+          for (const dom of Object.values(state.dom)) {
+            if (dom && dom.status) {
+              dom.status.textContent = hasOverride ? 'Override' : 'Default';
+            }
+          }
+        }
+      } catch (err) {
+        console.error('override update failed', err);
+        state.pending = false;
+        state.lastError = Date.now();
+        if (state.dom) {
+          for (const dom of Object.values(state.dom)) {
+            if (dom && dom.status) {
+              dom.status.textContent = 'Error';
+            }
+          }
+        }
+      }
+    }
+
+    function queueOverride(symbol) {
+      const state = sliderState.get(symbol);
+      if (!state) {
+        return;
+      }
+      state.pending = true;
+      if (state.dom) {
+        for (const dom of Object.values(state.dom)) {
+          if (dom && dom.status) {
+            dom.status.textContent = 'Saving…';
+          }
+        }
+      }
+      if (sliderTimers.has(symbol)) {
+        window.clearTimeout(sliderTimers.get(symbol));
+      }
+      sliderTimers.set(symbol, window.setTimeout(() => {
+        sliderTimers.delete(symbol);
+        pushOverride(symbol);
+      }, 280));
+    }
+
+    function createSliderCell(symbol, type) {
+      const td = document.createElement('td');
+      td.classList.add('slider-cell');
+      const symbolName = typeof symbol.symbol === 'string' ? symbol.symbol : '';
+      if (!symbolName) {
+        td.textContent = '—';
+        return td;
+      }
+
+      const defaults = {
+        buy_pct: toNumber(symbol.input_buy_pct ?? symbol.base_buy_pct ?? symbol.buy_pct, 2),
+        sell_pct: toNumber(symbol.input_sell_pct ?? symbol.base_sell_pct ?? symbol.sell_pct, 1.5),
+      };
+      const state = ensureSliderState(symbolName, defaults);
+      if (!state.pending) {
+        if (Number.isFinite(defaults.buy_pct)) {
+          state.buy_pct = defaults.buy_pct;
+        }
+        if (Number.isFinite(defaults.sell_pct)) {
+          state.sell_pct = defaults.sell_pct;
+        }
+      }
+
+      const wrapper = document.createElement('div');
+      wrapper.classList.add('slider-wrapper');
+
+      const label = document.createElement('div');
+      label.classList.add('slider-value', type);
+
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.classList.add('slider-input', type);
+      const rangeCfg = sliderRanges[type];
+      slider.min = String(rangeCfg.min);
+      slider.max = String(rangeCfg.max);
+      slider.step = String(rangeCfg.step);
+
+      let value = type === 'buy' ? state.buy_pct : state.sell_pct;
+      if (!Number.isFinite(value)) {
+        value = type === 'buy' ? defaults.buy_pct : defaults.sell_pct;
+      }
+      value = Math.min(Number(slider.max), Math.max(Number(slider.min), Number(value)));
+      if (type === 'buy') {
+        state.buy_pct = value;
+      } else {
+        state.sell_pct = value;
+      }
+
+      slider.value = String(value);
+      label.textContent = `${Number(value).toFixed(2)}%`;
+      styleSliderTrack(slider, type, value);
+
+      slider.addEventListener('input', () => {
+        const nextValue = Number(slider.value);
+        if (type === 'buy') {
+          state.buy_pct = nextValue;
+        } else {
+          state.sell_pct = nextValue;
+        }
+        label.textContent = `${nextValue.toFixed(2)}%`;
+        styleSliderTrack(slider, type, nextValue);
+        queueOverride(symbolName);
+      });
+
+      const status = document.createElement('div');
+      status.classList.add('slider-status');
+      const hasOverride = Boolean(
+        (symbol.override_active !== undefined ? symbol.override_active : false)
+        || state.overrideActive
+      );
+      state.overrideActive = hasOverride;
+      if (state.pending) {
+        status.textContent = 'Saving…';
+      } else if (state.lastError && (!state.lastSync || state.lastError > state.lastSync)) {
+        status.textContent = 'Error';
+      } else if (hasOverride) {
+        status.textContent = 'Override';
+      } else {
+        status.textContent = 'Default';
+      }
+
+      wrapper.appendChild(label);
+      wrapper.appendChild(slider);
+      wrapper.appendChild(status);
+      td.appendChild(wrapper);
+
+      state.dom = state.dom || {};
+      state.dom[type] = { slider, status, label };
       return td;
     }
 
@@ -489,6 +828,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       tr.appendChild(createNumericCell(symbol.reference, 2));
       tr.appendChild(createLevelCell(symbol, 'buy'));
       tr.appendChild(createLevelCell(symbol, 'sell'));
+      tr.appendChild(createSliderCell(symbol, 'buy'));
+      tr.appendChild(createSliderCell(symbol, 'sell'));
       tr.appendChild(createNumericCell(symbol.vwv_z, 2));
       tr.appendChild(createNumericCell(symbol.velocity_bps, 1));
 
@@ -585,6 +926,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
       tableContainer.innerHTML = '';
       tableContainer.appendChild(fragment);
+
+      const activeSymbols = new Set(rows.map((item) => item.symbol));
+      for (const key of Array.from(sliderState.keys())) {
+        if (!activeSymbols.has(key)) {
+          sliderState.delete(key);
+        }
+      }
+      for (const key of Array.from(sliderTimers.keys())) {
+        if (!activeSymbols.has(key)) {
+          window.clearTimeout(sliderTimers.get(key));
+          sliderTimers.delete(key);
+        }
+      }
     }
 
     async function pollSnapshot() {
@@ -640,6 +994,7 @@ def load_snapshot(path: Path) -> dict:
 
 class DashboardHandler(BaseHTTPRequestHandler):
     snapshot_path: Path = _default_snapshot_path()
+    overrides_path: Path = _default_overrides_path()
 
     def _send_response(self, status: int, content: bytes, content_type: str = 'text/html; charset=utf-8') -> None:
         self.send_response(status)
@@ -664,6 +1019,56 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         self.send_error(404, 'Not Found')
 
+    def do_POST(self) -> None:  # noqa: N802
+        if self.path == '/adjust':
+            length = int(self.headers.get('Content-Length', '0') or 0)
+            try:
+                payload = self.rfile.read(length).decode('utf-8') if length > 0 else ''
+            except Exception:
+                self.send_error(400, 'Unable to read request body')
+                return
+
+            try:
+                data: Dict[str, Any] = json.loads(payload) if payload else {}
+            except json.JSONDecodeError:
+                self.send_error(400, 'Invalid JSON payload')
+                return
+
+            symbol_raw = data.get('symbol')
+            if not isinstance(symbol_raw, str) or not symbol_raw.strip():
+                self.send_error(400, 'Symbol is required')
+                return
+            symbol = symbol_raw.strip().upper()
+
+            buy_val = data.get('buy_pct')
+            sell_val = data.get('sell_pct')
+            buy_pct = None
+            sell_pct = None
+            try:
+                if buy_val is not None:
+                    buy_pct = max(0.05, float(buy_val))
+            except (TypeError, ValueError):
+                self.send_error(400, 'buy_pct must be numeric')
+                return
+            try:
+                if sell_val is not None:
+                    sell_pct = max(0.05, float(sell_val))
+            except (TypeError, ValueError):
+                self.send_error(400, 'sell_pct must be numeric')
+                return
+
+            try:
+                overrides = update_symbol_override(symbol, buy_pct, sell_pct, self.overrides_path)
+            except Exception as exc:
+                self.send_error(500, f'Unable to persist override: {exc}')
+                return
+
+            body = json.dumps({'symbol': symbol, 'overrides': overrides}).encode('utf-8')
+            self._send_response(200, body, 'application/json; charset=utf-8')
+            return
+
+        self.send_error(404, 'Not Found')
+
     def log_message(self, format: str, *args) -> None:  # noqa: A003 - signature from base class
         # Silence default logging to keep terminal clean.
         return
@@ -671,16 +1076,28 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     default_snapshot = _default_snapshot_path()
+    default_overrides = _default_overrides_path()
     parser = argparse.ArgumentParser(description='Serve a color dashboard for Dronebot entry conditions.')
     parser.add_argument('--host', default='127.0.0.1', help='Bind address (default: 127.0.0.1).')
     parser.add_argument('--port', type=int, default=8765, help='Port to serve on (default: 8765).')
     parser.add_argument('--snapshot', default=str(default_snapshot), help='Path to the snapshot JSON written by dronebot.')
+    parser.add_argument('--overrides', default=str(default_overrides), help='Path to the dashboard override JSON file (default: alongside snapshot).')
     args = parser.parse_args()
 
     DashboardHandler.snapshot_path = _format_snapshot_path(args.snapshot)
+    DashboardHandler.overrides_path = _format_snapshot_path(args.overrides)
+    global DASHBOARD_OVERRIDES_PATH
+    DASHBOARD_OVERRIDES_PATH = DashboardHandler.overrides_path
     server = ThreadingHTTPServer((args.host, args.port), DashboardHandler)
     server.daemon_threads = True
-    print(f"Serving dashboard on http://{args.host}:{args.port} (snapshot: {DashboardHandler.snapshot_path})")
+    print(
+        "Serving dashboard on http://{host}:{port} (snapshot: {snap}, overrides: {over})".format(
+            host=args.host,
+            port=args.port,
+            snap=DashboardHandler.snapshot_path,
+            over=DashboardHandler.overrides_path,
+        )
+    )
     try:
         server.serve_forever()
     except KeyboardInterrupt:
