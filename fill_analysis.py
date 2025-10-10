@@ -56,7 +56,7 @@ def describe_symbol_fills(fills: Iterable[Fill], symbol: str) -> str:
     avg_buy_price = gross_bought / total_buy_qty if total_buy_qty else 0.0
     avg_sell_price = gross_sold / total_sell_qty if total_sell_qty else 0.0
 
-    realized_pnl = sum(f.realized_pnl for f in sells)
+    realized_pnl = sum(f.realized_pnl for f in filtered)
     net_position = total_buy_qty - total_sell_qty
     net_cash_flow = gross_sold - gross_bought
 
