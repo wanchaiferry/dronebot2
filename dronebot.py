@@ -111,7 +111,7 @@ TARGET_UTILIZATION_FRAC = float(os.getenv('TARGET_UTILIZATION_FRAC', '0.67'))
 ANCHOR_DISTANCE_MULT = float(os.getenv("ANCHOR_DISTANCE_MULT", "2.0"))
 BUY_LADDER_MULTS  = [0.375, 0.520, 0.721, 1.0, 1.077, 1.160, 1.25]   # multipliers on buy% ladder
 SELL_LADDER_MULTS = [0.375, 0.520, 0.721, 1.0, 1.077, 1.160, 1.25]   # multipliers on sell% ladder
-SPREAD_CLASS_MULTS = {'risky': 5.0, 'safe': 3.0}
+SPREAD_CLASS_MULTS = {'risky': 3.0, 'safe': 2.0}
 BUY_RUNG_CLIP_MULTS  = [1.0, 1.2, 1.4, 1.6, 1.85, 2.1, 2.3]   # clip scaling for successive ladder entries
 
 # Identify the ladder index that represents the core anchor (middle rung) so we can

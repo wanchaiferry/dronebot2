@@ -423,49 +423,66 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     tbody tr.sell-ready-row td.level-cell {
       background-image: none;
     }
-    .badge {
+    .ladder-control {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 6px;
+      font-size: 0.65rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(226, 232, 240, 0.85);
+    }
+    .ladder-control .ladder-stepper {
+      display: inline-flex;
+      align-items: stretch;
+      border-radius: 6px;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      overflow: hidden;
+      background: rgba(15, 23, 42, 0.55);
+    }
+    .ladder-control .ladder-stepper-input {
+      width: 54px;
+      padding: 4px 6px;
+      border: none;
+      background: transparent;
+      color: #f8fafc;
+      font-variant-numeric: tabular-nums;
+      font-size: 0.75rem;
+      text-align: right;
+    }
+    .ladder-control .ladder-stepper-input:focus {
+      outline: none;
+      background: rgba(59, 130, 246, 0.1);
+    }
+    .ladder-control .ladder-stepper-button {
+      appearance: none;
+      border: none;
+      background: transparent;
+      color: rgba(226, 232, 240, 0.85);
+      font-size: 0.75rem;
+      width: 24px;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 4px 10px;
-      border-radius: 999px;
-      font-size: 0.8rem;
+      cursor: pointer;
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+    .ladder-control .ladder-stepper-button:hover {
+      background: rgba(59, 130, 246, 0.18);
+      color: #f8fafc;
+    }
+    .ladder-control .ladder-stepper-button:active {
+      background: rgba(59, 130, 246, 0.28);
+    }
+    .ladder-control .ladder-stepper-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.4;
+    }
+    .ladder-control .total {
       font-weight: 600;
-      letter-spacing: 0.04em;
-    }
-    .entry-true {
-      background: linear-gradient(135deg, #059669, #34d399);
-      color: #022c22;
-    }
-    .entry-false {
-      background: rgba(15,118,110,0.2);
-      color: #5eead4;
-    }
-    .sell-true {
-      background: linear-gradient(135deg, #f87171, #ef4444);
-      color: #450a0a;
-    }
-    .sell-false {
-      background: rgba(248,113,113,0.15);
-      color: #fecaca;
-    }
-    .velocity-true {
-      background: linear-gradient(135deg, #818cf8, #6366f1);
-      color: #eef2ff;
-    }
-    .velocity-false {
-      background: rgba(99,102,241,0.25);
-      color: #c7d2fe;
-    }
-    .entry-scout {
-      background: rgba(16,185,129,0.25);
-      color: #6ee7b7;
-      border: 1px solid rgba(16,185,129,0.45);
-    }
-    .status {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
+      letter-spacing: 0.05em;
+      color: rgba(148, 163, 184, 0.9);
     }
     .numeric {
       font-variant-numeric: tabular-nums;
@@ -581,65 +598,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       stroke: rgba(15, 23, 42, 0.6);
       stroke-width: 1.2;
     }
-    .velocity-cell {
-      border-radius: 8px;
-      padding: 8px 12px;
-      text-align: right;
-      font-variant-numeric: tabular-nums;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      align-items: flex-end;
-      transition: background-color 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
-    }
-    .velocity-cell .velocity-main {
-      display: flex;
-      align-items: baseline;
-      gap: 6px;
-      font-weight: 600;
-      font-size: 0.95rem;
-    }
-    .velocity-cell .velocity-arrow {
-      font-size: 1.1rem;
-      line-height: 1;
-      letter-spacing: -0.02em;
-    }
-    .velocity-cell .velocity-status {
-      font-size: 0.68rem;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      opacity: 0.8;
-    }
-    .velocity-cell.positive {
-      box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.45);
-    }
-    .velocity-cell.negative {
-      box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.45);
-    }
-    .velocity-cell.neutral {
-      box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.35);
-      color: #cbd5f5;
-      background: rgba(148, 163, 184, 0.18);
-    }
-    .velocity-cell.active {
-      box-shadow: inset 0 0 0 1px rgba(248, 250, 252, 0.35), 0 8px 16px rgba(15, 23, 42, 0.35);
-    }
-    .velocity-cell.dim {
-      opacity: 0.75;
-    }
     .ladder-wrapper {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: auto repeat(2, minmax(0, 1fr));
       gap: 6px 12px;
       margin-top: 8px;
       font-size: 0.72rem;
+      align-items: stretch;
     }
     .ladder-meta {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
       gap: 6px 12px;
       margin-top: 8px;
       font-size: 0.72rem;
+      align-items: start;
     }
     .ladder-next {
       padding: 6px 8px;
@@ -676,6 +649,47 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .ladder-next .value {
       font-weight: 600;
       color: #e2e8f0;
+    }
+    .ladder-velocity {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 4px 6px;
+      border-radius: 10px;
+      border: 1px solid rgba(148, 163, 184, 0.28);
+      background: rgba(30, 41, 59, 0.6);
+      color: rgba(226, 232, 240, 0.85);
+      gap: 4px;
+      min-width: 48px;
+      font-variant-numeric: tabular-nums;
+    }
+    .ladder-velocity .arrow {
+      font-size: 1.4rem;
+      line-height: 1;
+    }
+    .ladder-velocity .magnitude {
+      font-size: 0.65rem;
+      letter-spacing: 0.08em;
+    }
+    .ladder-velocity.buy {
+      border-color: rgba(248, 113, 113, 0.35);
+      color: #fee2e2;
+      background: rgba(248, 113, 113, 0.18);
+    }
+    .ladder-velocity.sell {
+      border-color: rgba(34, 197, 94, 0.35);
+      color: #dcfce7;
+      background: rgba(34, 197, 94, 0.18);
+    }
+    .ladder-velocity.triggered {
+      box-shadow: 0 0 18px rgba(59, 130, 246, 0.4);
+    }
+    .ladder-velocity.primed {
+      box-shadow: 0 0 12px rgba(96, 165, 250, 0.35);
+    }
+    .ladder-velocity.neutral {
+      opacity: 0.85;
     }
     .ladder-column {
       display: flex;
@@ -719,6 +733,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       background: rgba(34, 197, 94, 0.14);
       border-color: rgba(34, 197, 94, 0.24);
       color: #dcfce7;
+    }
+    .ladder-rung.filled {
+      box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.45), 0 6px 12px rgba(15, 23, 42, 0.45);
+      transform: translateY(-1px);
     }
     .ladder-rung.active {
       box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.45), 0 6px 14px rgba(15, 23, 42, 0.35);
@@ -785,13 +803,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <th>Buy %</th>
           <th>Sell %</th>
           <th>VWV Z</th>
-          <th>Velocity</th>
           <th>Layers</th>
           <th>Position</th>
           <th>Avg Cost</th>
           <th>Clip $</th>
           <th>Unrealized</th>
-          <th>Signals</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -803,6 +819,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     const summaryLabel = document.getElementById('summary');
     const constantsPanel = document.getElementById('constants');
     const template = document.getElementById('table-template');
+    let latestSnapshot = null;
 
     function formatNumber(value, fractionDigits = 2) {
       if (value === null || value === undefined) {
@@ -998,85 +1015,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       return td;
     }
 
-    function createVelocityCell(symbol) {
-      const td = document.createElement('td');
-      td.classList.add('velocity-cell');
-
-      const main = document.createElement('div');
-      main.classList.add('velocity-main');
-
-      const arrowSpan = document.createElement('span');
-      arrowSpan.classList.add('velocity-arrow');
-
-      const valueSpan = document.createElement('span');
-      valueSpan.classList.add('velocity-value');
-
-      main.appendChild(arrowSpan);
-      main.appendChild(valueSpan);
-      td.appendChild(main);
-
-      const statusSpan = document.createElement('div');
-      statusSpan.classList.add('velocity-status');
-      td.appendChild(statusSpan);
-
-      const bpsRaw = Number(symbol.velocity_bps);
-      const hasBps = Number.isFinite(bpsRaw);
-      const velocityActive = Boolean(symbol.velocity_active);
-      const velocityReady = Boolean(symbol.velocity_ready);
-
-      let direction = 'neutral';
-      if (hasBps) {
-        if (bpsRaw > 0.01) direction = 'positive';
-        else if (bpsRaw < -0.01) direction = 'negative';
-      }
-
-      const arrowChar = direction === 'positive' ? '>' : direction === 'negative' ? '<' : '·';
-      arrowSpan.textContent = arrowChar;
-      valueSpan.textContent = hasBps ? `${Math.abs(bpsRaw).toFixed(1)} bps` : '—';
-
-      if (velocityActive) {
-        statusSpan.textContent = 'Velocity Triggered';
-        td.classList.add('active');
-      } else if (velocityReady) {
-        statusSpan.textContent = 'Velocity Primed';
-      } else if (hasBps) {
-        statusSpan.textContent = 'Velocity Watching';
-        td.classList.add('dim');
-      } else {
-        statusSpan.textContent = 'Velocity Offline';
-        td.classList.add('dim');
-      }
-
-      const magnitude = hasBps ? Math.min(1, Math.abs(bpsRaw) / 25) : 0;
-      let alpha = 0.2 + magnitude * 0.55;
-      if (velocityActive) {
-        alpha = Math.min(0.95, alpha + 0.25);
-      } else if (velocityReady) {
-        alpha = Math.min(0.9, alpha + 0.1);
-      }
-
-      if (direction === 'positive') {
-        td.classList.add('positive');
-        const background = `rgba(34, 197, 94, ${alpha.toFixed(3)})`;
-        td.style.backgroundColor = background;
-        td.style.color = alpha > 0.55 ? '#022c22' : '#dcfce7';
-      } else if (direction === 'negative') {
-        td.classList.add('negative');
-        const background = `rgba(248, 113, 113, ${alpha.toFixed(3)})`;
-        td.style.backgroundColor = background;
-        td.style.color = alpha > 0.55 ? '#450a0a' : '#fee2e2';
-      } else {
-        td.classList.add('neutral');
-      }
-
-      if (!hasBps) {
-        arrowSpan.style.opacity = '0.6';
-        valueSpan.style.opacity = '0.8';
-      }
-
-      return td;
-    }
-
     function formatDelta(level, last) {
       const levelNum = Number(level);
       const lastNum = Number(last);
@@ -1162,6 +1100,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
     const sliderState = new Map();
     const sliderTimers = new Map();
+    const ladderControlState = new Map();
     const sliderRanges = {
       buy: { min: 0.25, max: 8, step: 0.05 },
       sell: { min: 0.25, max: 8, step: 0.05 },
@@ -1362,7 +1301,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       return td;
     }
 
-    function getLadderLevels(symbol, type) {
+    function parseLadderLevels(symbol, type) {
       const key = type === 'buy' ? 'buy_ladder_levels' : 'sell_ladder_levels';
       const raw = symbol[key];
       if (!Array.isArray(raw)) {
@@ -1382,6 +1321,71 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         .filter(Boolean);
     }
 
+    function ensureLadderControlStateEntry(symbolName) {
+      if (!symbolName) {
+        return null;
+      }
+      let state = ladderControlState.get(symbolName);
+      if (!state) {
+        state = {
+          buy: { limit: null, total: 0 },
+          sell: { limit: null, total: 0 },
+        };
+        ladderControlState.set(symbolName, state);
+      }
+      return state;
+    }
+
+    function resolveLadderLimit(symbolName, type, totalCount) {
+      if (!symbolName || totalCount <= 0) {
+        return totalCount;
+      }
+      const state = ensureLadderControlStateEntry(symbolName);
+      if (!state) {
+        return totalCount;
+      }
+      const bucket = state[type];
+      bucket.total = totalCount;
+      if (!Number.isFinite(bucket.limit)) {
+        bucket.limit = totalCount;
+      }
+      const clamped = Math.max(0, Math.min(totalCount, Math.floor(bucket.limit)));
+      bucket.limit = clamped;
+      return clamped;
+    }
+
+    function updateLadderLimit(symbolName, type, nextLimit) {
+      if (!symbolName) {
+        return { limit: 0, changed: false };
+      }
+      const state = ensureLadderControlStateEntry(symbolName);
+      if (!state) {
+        return { limit: 0, changed: false };
+      }
+      const bucket = state[type];
+      if (!bucket) {
+        return { limit: 0, changed: false };
+      }
+      const total = Number.isFinite(bucket.total) ? bucket.total : 0;
+      const previous = Number.isFinite(bucket.limit) ? bucket.limit : total;
+      const limit = Math.max(0, Math.min(total, Math.floor(nextLimit)));
+      bucket.limit = limit;
+      return { limit, changed: previous !== limit };
+    }
+
+    function getLadderInfo(symbol, type) {
+      const levels = parseLadderLevels(symbol, type);
+      const symbolName = typeof symbol.symbol === 'string' ? symbol.symbol : '';
+      const total = levels.length;
+      const limit = resolveLadderLimit(symbolName, type, total);
+      const visible = limit === 0 ? [] : levels.slice(0, limit);
+      return { levels, visible, total, limit };
+    }
+
+    function getLadderLevels(symbol, type) {
+      return getLadderInfo(symbol, type).visible;
+    }
+
     function getNextIndex(symbol, type) {
       const raw = type === 'buy' ? symbol.next_buy_index : symbol.next_sell_index;
       if (typeof raw === 'number' && Number.isFinite(raw)) {
@@ -1390,7 +1394,115 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       return null;
     }
 
-    function createLadderSummary(symbol, type, nextIndex, lastPrice) {
+    function renderLadderControl(symbol, type, total) {
+      const symbolName = typeof symbol.symbol === 'string' ? symbol.symbol : '';
+      if (!symbolName || total <= 0) {
+        return null;
+      }
+
+      const limit = resolveLadderLimit(symbolName, type, total);
+      let currentLimit = limit;
+
+      const wrapper = document.createElement('label');
+      wrapper.classList.add('ladder-control');
+
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = 'Rungs';
+      wrapper.appendChild(labelSpan);
+
+      const stepper = document.createElement('div');
+      stepper.classList.add('ladder-stepper');
+
+      const decrement = document.createElement('button');
+      decrement.type = 'button';
+      decrement.classList.add('ladder-stepper-button', 'down');
+      decrement.setAttribute('aria-label', 'Remove rung');
+      decrement.textContent = '−';
+      stepper.appendChild(decrement);
+
+      const input = document.createElement('input');
+      input.type = 'number';
+      input.inputMode = 'numeric';
+      input.min = '0';
+      input.max = String(total);
+      input.step = '1';
+      input.value = String(limit);
+      input.classList.add('ladder-stepper-input');
+      stepper.appendChild(input);
+
+      const increment = document.createElement('button');
+      increment.type = 'button';
+      increment.classList.add('ladder-stepper-button', 'up');
+      increment.setAttribute('aria-label', 'Add rung');
+      increment.textContent = '+';
+      stepper.appendChild(increment);
+
+      wrapper.appendChild(stepper);
+
+      const totalSpan = document.createElement('span');
+      totalSpan.classList.add('total');
+      totalSpan.textContent = `/ ${total}`;
+      wrapper.appendChild(totalSpan);
+
+      let rafId = null;
+      const scheduleRender = () => {
+        if (!latestSnapshot) {
+          return;
+        }
+        if (rafId !== null) {
+          window.cancelAnimationFrame(rafId);
+        }
+        rafId = window.requestAnimationFrame(() => {
+          rafId = null;
+          renderSnapshot(latestSnapshot);
+        });
+      };
+
+      const updateStepperState = () => {
+        const current = Number(input.value);
+        const min = Number(input.min);
+        const max = Number(input.max);
+        const normalized = Number.isFinite(current) ? current : currentLimit;
+        decrement.disabled = normalized <= min;
+        increment.disabled = normalized >= max;
+      };
+
+      const applyValue = () => {
+        const nextValue = Number(input.value);
+        if (!Number.isFinite(nextValue)) {
+          input.value = String(currentLimit);
+          updateStepperState();
+          return;
+        }
+        const { limit: clamped, changed } = updateLadderLimit(symbolName, type, nextValue);
+        input.value = String(clamped);
+        currentLimit = clamped;
+        updateStepperState();
+        if (changed) {
+          scheduleRender();
+        }
+      };
+
+      input.addEventListener('change', applyValue);
+      input.addEventListener('blur', applyValue);
+      input.addEventListener('input', applyValue);
+
+      const nudge = (delta) => {
+        const current = Number(input.value);
+        const base = Number.isFinite(current) ? current : currentLimit;
+        input.value = String(base + delta);
+        applyValue();
+      };
+
+      decrement.addEventListener('click', () => nudge(-1));
+      increment.addEventListener('click', () => nudge(1));
+
+      updateStepperState();
+
+      return wrapper;
+    }
+
+    function createLadderSummary(symbol, type, context = {}) {
       const box = document.createElement('div');
       box.classList.add('ladder-next', type);
 
@@ -1404,8 +1516,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
       const levelValueRaw = type === 'buy' ? symbol.next_buy_level : symbol.next_sell_level;
       const levelValue = Number(levelValueRaw);
-      const rungIndex = typeof nextIndex === 'number' && Number.isFinite(nextIndex) ? nextIndex + 1 : null;
-      const lastNum = Number(lastPrice);
+      const nextIndex = typeof context.nextIndex === 'number' && Number.isFinite(context.nextIndex)
+        ? context.nextIndex
+        : null;
+      const rungIndex = nextIndex !== null ? nextIndex + 1 : null;
+      const lastNum = Number(context.lastPrice);
 
       if (Number.isFinite(levelValue)) {
         const rungPart = rungIndex ? `L${rungIndex} · ` : '';
@@ -1416,6 +1531,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       }
 
       box.appendChild(value);
+      const totalLevels = Number.isFinite(context.totalLevels) ? context.totalLevels : 0;
+      if (totalLevels > 0) {
+        const control = renderLadderControl(symbol, type, totalLevels);
+        if (control) {
+          box.appendChild(control);
+        }
+      }
       return box;
     }
 
@@ -1448,6 +1570,57 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       return null;
     }
 
+    function createVelocityIndicator(symbol) {
+      const box = document.createElement('div');
+      box.classList.add('ladder-velocity');
+
+      const arrowSpan = document.createElement('span');
+      arrowSpan.classList.add('arrow');
+      box.appendChild(arrowSpan);
+
+      const magnitudeSpan = document.createElement('span');
+      magnitudeSpan.classList.add('magnitude');
+      box.appendChild(magnitudeSpan);
+
+      const velocity = Number(symbol.velocity_bps);
+      const active = Boolean(symbol.velocity_active);
+      const primed = Boolean(symbol.velocity_ready);
+
+      let direction = 'neutral';
+      if (Number.isFinite(velocity)) {
+        if (velocity > 0.05) {
+          direction = 'buy';
+        } else if (velocity < -0.05) {
+          direction = 'sell';
+        }
+      }
+
+      if (direction === 'buy') {
+        arrowSpan.textContent = '↑';
+        box.classList.add('buy');
+      } else if (direction === 'sell') {
+        arrowSpan.textContent = '↓';
+        box.classList.add('sell');
+      } else {
+        arrowSpan.textContent = '→';
+      }
+
+      if (Number.isFinite(velocity)) {
+        magnitudeSpan.textContent = `${Math.abs(velocity).toFixed(1)} bps`;
+      } else {
+        magnitudeSpan.textContent = '—';
+        box.classList.add('neutral');
+      }
+
+      if (active) {
+        box.classList.add('triggered');
+      } else if (primed) {
+        box.classList.add('primed');
+      }
+
+      return box;
+    }
+
     function createLadderColumn(symbol, type, context = {}) {
       const column = document.createElement('div');
       column.classList.add('ladder-column', type);
@@ -1457,7 +1630,18 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       title.textContent = type === 'buy' ? 'Buy ladder' : 'Sell ladder';
       column.appendChild(title);
 
-      const levels = Array.isArray(context.levels) ? context.levels : getLadderLevels(symbol, type);
+      const sourceLevels = Array.isArray(context.levels) ? context.levels : getLadderLevels(symbol, type);
+      const levels = Array.isArray(sourceLevels) ? sourceLevels : [];
+      const orderedLevels = type === 'buy'
+        ? [...levels].sort((a, b) => {
+            const aVal = Number(a?.value);
+            const bVal = Number(b?.value);
+            if (Number.isFinite(aVal) && Number.isFinite(bVal) && aVal !== bVal) {
+              return bVal - aVal;
+            }
+            return (a?.index ?? 0) - (b?.index ?? 0);
+          })
+        : [...levels];
       const rungs = document.createElement('div');
       rungs.classList.add('ladder-rungs');
       const nextIndex = typeof context.nextIndex === 'number' && Number.isFinite(context.nextIndex)
@@ -1466,8 +1650,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       const lastPrice = typeof context.lastPrice === 'number' && Number.isFinite(context.lastPrice)
         ? context.lastPrice
         : Number(symbol.last);
+      const activeCount = typeof context.activeCount === 'number' && Number.isFinite(context.activeCount)
+        ? Math.max(0, Math.floor(context.activeCount))
+        : null;
 
-      if (!levels.length) {
+      if (!orderedLevels.length) {
         const placeholder = document.createElement('div');
         placeholder.classList.add('ladder-empty');
         placeholder.textContent = 'No levels';
@@ -1476,11 +1663,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         return column;
       }
 
-      for (const { index, value } of levels) {
+      orderedLevels.forEach(({ index, value }, visibleIdx) => {
         const rung = document.createElement('div');
         rung.classList.add('ladder-rung', type);
         if (nextIndex !== null && index === nextIndex) {
           rung.classList.add('active');
+        }
+        if (activeCount !== null && visibleIdx < activeCount) {
+          rung.classList.add('filled');
         }
 
         const indexSpan = document.createElement('span');
@@ -1504,7 +1694,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
         }
 
         rungs.appendChild(rung);
-      }
+      });
 
       column.appendChild(rungs);
       return column;
@@ -1523,28 +1713,65 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       td.appendChild(wrapper);
 
       const lastPrice = Number(symbol.last);
-      const buyLevels = getLadderLevels(symbol, 'buy');
-      const sellLevels = getLadderLevels(symbol, 'sell');
-      const nextBuyIndex = getNextIndex(symbol, 'buy');
-      const nextSellIndex = getNextIndex(symbol, 'sell');
+      const buyInfo = getLadderInfo(symbol, 'buy');
+      const sellInfo = getLadderInfo(symbol, 'sell');
+      const buyLevels = buyInfo.visible;
+      const sellLevels = sellInfo.visible;
+      const rawNextBuyIndex = getNextIndex(symbol, 'buy');
+      const rawNextSellIndex = getNextIndex(symbol, 'sell');
+      const visibleNextBuyIndex = buyLevels.length
+        ? Math.min(
+            Number.isFinite(rawNextBuyIndex) ? rawNextBuyIndex : 0,
+            buyLevels.length - 1,
+          )
+        : null;
+      const visibleNextSellIndex = sellLevels.length
+        ? Math.min(
+            Number.isFinite(rawNextSellIndex) ? rawNextSellIndex : 0,
+            sellLevels.length - 1,
+          )
+        : null;
+      const buyActiveRaw = Number(symbol.buy_layers_active);
+      const sellActiveRaw = Number(symbol.sell_layers_hit);
+      const activeBuyLayers = Number.isFinite(buyActiveRaw)
+        ? Math.min(Math.max(0, Math.floor(buyActiveRaw)), buyLevels.length)
+        : null;
+      const activeSellLayers = Number.isFinite(sellActiveRaw)
+        ? Math.min(Math.max(0, Math.floor(sellActiveRaw)), sellLevels.length)
+        : null;
 
       const meta = document.createElement('div');
       meta.classList.add('ladder-meta');
-      meta.appendChild(createLadderSummary(symbol, 'buy', nextBuyIndex, lastPrice));
-      meta.appendChild(createLadderSummary(symbol, 'sell', nextSellIndex, lastPrice));
+      meta.appendChild(
+        createLadderSummary(symbol, 'buy', {
+          nextIndex: visibleNextBuyIndex,
+          lastPrice,
+          totalLevels: buyInfo.total,
+        }),
+      );
+      meta.appendChild(
+        createLadderSummary(symbol, 'sell', {
+          nextIndex: visibleNextSellIndex,
+          lastPrice,
+          totalLevels: sellInfo.total,
+        }),
+      );
       td.appendChild(meta);
 
       const ladders = document.createElement('div');
       ladders.classList.add('ladder-wrapper');
+      ladders.appendChild(createVelocityIndicator(symbol));
       ladders.appendChild(createLadderColumn(symbol, 'buy', {
         levels: buyLevels,
-        nextIndex: nextBuyIndex,
+        nextIndex: visibleNextBuyIndex !== null ? buyLevels[visibleNextBuyIndex]?.index ?? null : null,
         lastPrice,
+        activeCount: activeBuyLayers,
       }));
       ladders.appendChild(createLadderColumn(symbol, 'sell', {
         levels: sellLevels,
-        nextIndex: nextSellIndex,
+        nextIndex: visibleNextSellIndex !== null ? sellLevels[visibleNextSellIndex]?.index ?? null : null,
         lastPrice,
+        activeCount: activeSellLayers,
       }));
       td.appendChild(ladders);
 
@@ -1665,7 +1892,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       tr.appendChild(createSliderCell(symbol, 'buy'));
       tr.appendChild(createSliderCell(symbol, 'sell'));
       tr.appendChild(createNumericCell(symbol.vwv_z, 2));
-      tr.appendChild(createVelocityCell(symbol));
 
       const layersTd = document.createElement('td');
       layersTd.textContent = formatLayers(symbol.buy_layers_active, symbol.buy_layers_target, symbol.sell_layers_hit);
@@ -1677,54 +1903,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       tr.appendChild(createNumericCell(symbol.clip_usd, 0));
       tr.appendChild(createNumericCell(symbol.unrealized, 2));
 
-      const statusTd = document.createElement('td');
-      statusTd.classList.add('status');
-
-      const entryBadge = document.createElement('span');
-      entryBadge.classList.add('badge');
-      const velocityActive = Boolean(symbol.velocity_active);
-      const velocityReady = Boolean(symbol.velocity_ready);
-
-      if (velocityActive) {
-        entryBadge.classList.add('entry-true');
-        entryBadge.textContent = 'Velocity Triggered';
-      } else if (buyReady) {
-        entryBadge.classList.add('entry-true');
-        entryBadge.textContent = 'Entry Ready';
-      } else if (velocityReady) {
-        entryBadge.classList.add('entry-false');
-        entryBadge.textContent = 'Velocity Primed';
-      } else if (lookingToEnter) {
-        entryBadge.classList.add('entry-scout');
-        entryBadge.textContent = 'Entry Watching';
-      } else {
-        entryBadge.classList.add('entry-false');
-        entryBadge.textContent = 'Entry Cooling';
-      }
-
-      if (hasLayerGap && (buyReady || lookingToEnter)) {
-        entryBadge.textContent += ` (+${layersGapValue})`;
-      }
-
-      statusTd.appendChild(entryBadge);
-
-      if (lookingToEnter && !buyReady) {
-        const scoutBadge = document.createElement('span');
-        scoutBadge.classList.add('badge', 'entry-scout');
-        scoutBadge.textContent = 'Price Ladder';
-        statusTd.appendChild(scoutBadge);
-      }
-
-      const sellBadge = document.createElement('span');
-      sellBadge.classList.add('badge', sellReady ? 'sell-true' : 'sell-false');
-      sellBadge.textContent = sellReady ? 'Trim Ready' : 'Trim Waiting';
-      statusTd.appendChild(sellBadge);
-
-      tr.appendChild(statusTd);
       return tr;
     }
 
     function renderSnapshot(snapshot) {
+      latestSnapshot = snapshot;
       if (!snapshot || !Array.isArray(snapshot.symbols) || snapshot.symbols.length === 0) {
         updatedLabel.textContent = snapshot && snapshot.updated ? `Updated ${snapshot.updated}` : 'Waiting for snapshot…';
         summaryLabel.textContent = 'No active symbols reported by the bot yet.';
@@ -1794,6 +1977,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       for (const key of Array.from(chartState.keys())) {
         if (!activeSymbols.has(key)) {
           chartState.delete(key);
+        }
+      }
+      for (const key of Array.from(ladderControlState.keys())) {
+        if (!activeSymbols.has(key)) {
+          ladderControlState.delete(key);
         }
       }
     }
